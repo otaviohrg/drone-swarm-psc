@@ -9,7 +9,7 @@ from spg_overlay.utils.misc_data import MiscData
 from spg_overlay.entities.drone_distance_sensors import DroneSemanticSensor
 from spg_overlay.utils.utils import normalize_angle, circular_mean
 
-from scipy.stats import levy
+from scipy.stats import norm, poisson, levy
 
 class MyDroneEval(DroneAbstract):
 
@@ -41,14 +41,10 @@ class MyDroneEval(DroneAbstract):
         # The state is initialized to searching wounded person
         self.state = self.Activity.SEARCHING_WOUNDED
         # values used by the control function
-        self.counterStraight = 0
-        self.counterStopStraight = 0
-        self.angleStopTurning = 0
-        self.isTurningLeft = False
-        self.isTurningRight = False
-        self.compass_angle = self.measured_compass_angle()
-        self.gps_x = self.measured_gps_position()[0]
-        self.gps_y = self.measured_gps_position()[1]
+        self.planningPhase = True
+        self.turnCounter = 0
+        self.turnArg = 0
+        self.walkCounter = 0
 
     def _is_turning(self):
             return self.isTurningLeft or self.isTurningRight
@@ -64,9 +60,16 @@ class MyDroneEval(DroneAbstract):
         size = lidar_sensor.resolution
 
         collision_angle = 0
+        far_angle = 0
+        min_dist = 0
+        max_dist = 0
         if size != 0:
             # collision_angle: angle with smallest distance
             collision_angle = ray_angles[np.argmin(values)]
+            min_dist = min(values)
+            # far_angle: angle with biggest distance
+            far_angle = ray_angles[np.argmax(values)]
+            max_dist = max(values)
 
         if self.lidar_values() is None:
             return False, 0
@@ -77,7 +80,7 @@ class MyDroneEval(DroneAbstract):
         if dist < 40:
             collided = True
 
-        return collided, collision_angle
+        return collided, collision_angle, far_angle, min_dist, max_dist
 
     def process_semantic_sensor(self):
         """
@@ -153,6 +156,7 @@ class MyDroneEval(DroneAbstract):
                    "grasper": 0}
 
         found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
+        collided, collision_angle, far_angle, min_dist, max_dist = self.process_lidar_sensor()
 
         #############
         # TRANSITIONS OF THE STATE MACHINE
@@ -185,63 +189,45 @@ class MyDroneEval(DroneAbstract):
 
         def explore():
 
-            command_straight = {"forward": 1.0,
-                                "lateral": 0.0,
-                                "rotation": 0.0}
-            command_turn_left = {"forward": 0.0,
-                                "lateral": 0.0,
-                                "rotation": 1.0}
-            command_turn_right = {"forward": 0.0,
-                                "lateral": 0.0,
-                                "rotation": -1.0}
-            if(self.gps_is_disabled()):#no gps/compass zone
-                #we try a random approach
-                if((not self._is_turning()) and (self.counterStraight >= self.counterStopStraight)): #compute next step
-                    self.angleStopTurning = random.uniform(-math.pi, math.pi)
-                    self.isTurningLeft = (random.uniform(0, 1) > 0.5)
-                    self.isTurningRight = False
-                    self.counterStraight = 0
-                    self.counterStopStraight = levy.rvs(size = 1)
+            command = {"forward": 0.0,
+                    "lateral": 0.0,
+                    "rotation": 0.0,
+                    "grasper": 0.0}
 
-                if(self.isTurningLeft):
-                    self.isTurningLeft = False
-                    return command_turn_left
-                elif(self.isTurningRight):
-                    self.isTurningRight = False
-                    return command_turn_right
+            '''strategy: Hilbert curves!
+                the drone path is a sequence of steps
+                in each step, the drone follows a Hilbert curve
+                we use a randomized rotating constant sized frame to choose exploration direction
+            '''
+            if(self.planningPhase): #plan next step
+                #small rotations when cornered, big rotation in open areas
+                rotation_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
+                self.turnArg = 0.5 if rotation_parameter > 0 else -0.5
+                self.turnCounter = min(10, poisson.rvs(math.floor(10*rotation_parameter**2), size =1))
+                #small walk when cornered, big walk in open areas
+                walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
+                self.walkCounter = min(20, 2*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
+                self.planningPhase = False
 
-                #after rotation we walk in chosen direction
-                self.counterStraight += 1 
-                return command_straight
-            else: #we can use gps and compass
+            self.turnCounter -= 1
+            if(self.turnCounter >= 0):#rotate
+                command["rotation"] = self.turnArg
+                return command
+            
+            if(collided): #avoid obstacle
+                if(far_angle > collision_angle):#add left rotation
+                    command["rotation"] = 0.5
+                else: #add right rotation
+                    command["rotation"] = -0.5
 
-                self.compass_angle = self.measured_compass_angle()
-                self.gps_x = self.measured_gps_position()[0]
-                self.gps_y = self.measured_gps_position()[1]
-                print("GPS: ({0:.1f}, {1:.1f})".format(self.gps_x, self.gps_y))
+            self.walkCounter -= 1
+            if(self.walkCounter >= 0):#rotate
+                command["forward"] = 1.0
 
-                diff_angle = normalize_angle(self.angleStopTurning - self.compass_angle)
+            if(self.walkCounter <= 0):
+                self.planningPhase = True
 
-                if((not self._is_turning()) and (self.counterStraight >= self.counterStopStraight)): #compute next step
-                    self.angleStopTurning = random.uniform(-math.pi, math.pi)
-                    self.isTurningLeft = (self.angleStopTurning > 0)
-                    self.isTurningRight = (self.angleStopTurning < 0)
-                    self.counterStraight = 0
-                    self.counterStopStraight = max(7, levy.rvs(size = 1))
-
-                #keep executing the step, first we perform rotation
-                if(self._is_turning()):
-                    if(abs(diff_angle) < 0.2): #ok stop rotating
-                        self.isTurningLeft = False
-                        self.isTurningRight = False
-                    else:
-                        if(self.isTurningLeft):
-                            return command_turn_left
-                        return command_turn_right
-
-                #after rotation we walk in chosen direction
-                self.counterStraight += 1 
-                return command_straight
+            return command
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
             command = explore()
