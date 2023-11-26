@@ -46,8 +46,9 @@ class MyDroneEval(DroneAbstract):
         self.angleStopTurning = 0
         self.isTurningLeft = False
         self.isTurningRight = False
-        self.colision_memory = 0
-        
+        self.compass_angle = self.measured_compass_angle()
+        self.gps_x = self.measured_gps_position()[0]
+        self.gps_y = self.measured_gps_position()[1]
 
     def _is_turning(self):
             return self.isTurningLeft or self.isTurningRight
@@ -62,21 +63,21 @@ class MyDroneEval(DroneAbstract):
         ray_angles = lidar_sensor.ray_angles
         size = lidar_sensor.resolution
 
-        far_angle_raw = 0
+        collision_angle = 0
         if size != 0:
-            # far_angle_raw : angle with the longer distance
-            far_angle_raw = ray_angles[np.argmax(values)]
+            # collision_angle: angle with smallest distance
+            collision_angle = ray_angles[np.argmin(values)]
 
         if self.lidar_values() is None:
-            return False
+            return False, 0
 
         collided = False
         dist = min(self.lidar_values())
 
-        if dist < 20:
+        if dist < 40:
             collided = True
 
-        return collided, far_angle_raw
+        return collided, collision_angle
 
     def process_semantic_sensor(self):
         """
@@ -184,45 +185,63 @@ class MyDroneEval(DroneAbstract):
 
         def explore():
 
-            command_straight = {"forward": 0.8,
-                            "rotation": 0.0}
+            command_straight = {"forward": 1.0,
+                                "lateral": 0.0,
+                                "rotation": 0.0}
             command_turn_left = {"forward": 0.0,
+                                "lateral": 0.0,
                                 "rotation": 1.0}
             command_turn_right = {"forward": 0.0,
+                                "lateral": 0.0,
                                 "rotation": -1.0}
-            
-            collided, far_angle_raw = self.process_lidar_sensor()
-            self.colision_memory -= 1
-            if(collided and self.colision_memory <= 0):
-                self.colision_memory = 20
-            
-            diff_angle = normalize_angle(self.angleStopTurning - self.measured_compass_angle())
-
-            def levy_step(scale, beta):
-                return scale*(random.uniform(0, 1)**(-beta) - 1)
-
-            if(((not self._is_turning()) and (self.counterStraight >= self.counterStopStraight)) or self.colision_memory==20): #compute next step
-                if(self.colision_memory == 20):
-                    self.angleStopTurning = random.uniform(0.9, 1)*far_angle_raw
-                else:
+            if(self.gps_is_disabled()):#no gps/compass zone
+                #we try a random approach
+                if((not self._is_turning()) and (self.counterStraight >= self.counterStopStraight)): #compute next step
                     self.angleStopTurning = random.uniform(-math.pi, math.pi)
-                self.isTurningLeft = (self.angleStopTurning > 0)
-                self.isTurningRight = (self.angleStopTurning < 0)
-                self.counterStraight = 0
-                self.counterStopStraight = levy_step(10 + far_angle_raw/math.pi, 0.75)
-                #self.counterStopStraight = levy.rvs(size = 1)
-
-            if(self._is_turning()):
-                if(abs(diff_angle) < 0.2): #stop turning, lets walk
-                    self.isTurningLeft = False
+                    self.isTurningLeft = (random.uniform(0, 1) > 0.5)
                     self.isTurningRight = False
-                else:
-                    if(self.isTurningLeft):
-                        return command_turn_left
+                    self.counterStraight = 0
+                    self.counterStopStraight = levy.rvs(size = 1)
+
+                if(self.isTurningLeft):
+                    self.isTurningLeft = False
+                    return command_turn_left
+                elif(self.isTurningRight):
+                    self.isTurningRight = False
                     return command_turn_right
 
-            self.counterStraight += 1 #walk straight
-            return command_straight
+                #after rotation we walk in chosen direction
+                self.counterStraight += 1 
+                return command_straight
+            else: #we can use gps and compass
+
+                self.compass_angle = self.measured_compass_angle()
+                self.gps_x = self.measured_gps_position()[0]
+                self.gps_y = self.measured_gps_position()[1]
+                print("GPS: ({0:.1f}, {1:.1f})".format(x, y))
+
+                diff_angle = normalize_angle(self.angleStopTurning - self.compass_angle)
+
+                if((not self._is_turning()) and (self.counterStraight >= self.counterStopStraight)): #compute next step
+                    self.angleStopTurning = random.uniform(-math.pi, math.pi)
+                    self.isTurningLeft = (self.angleStopTurning > 0)
+                    self.isTurningRight = (self.angleStopTurning < 0)
+                    self.counterStraight = 0
+                    self.counterStopStraight = max(7, levy.rvs(size = 1))
+
+                #keep executing the step, first we perform rotation
+                if(self._is_turning()):
+                    if(abs(diff_angle) < 0.2): #ok stop rotating
+                        self.isTurningLeft = False
+                        self.isTurningRight = False
+                    else:
+                        if(self.isTurningLeft):
+                            return command_turn_left
+                        return command_turn_right
+
+                #after rotation we walk in chosen direction
+                self.counterStraight += 1 
+                return command_straight
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
             command = explore()
