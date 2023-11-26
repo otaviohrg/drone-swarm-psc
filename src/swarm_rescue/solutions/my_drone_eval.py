@@ -10,6 +10,7 @@ from spg_overlay.entities.drone_distance_sensors import DroneSemanticSensor
 from spg_overlay.utils.utils import normalize_angle, circular_mean
 
 from scipy.stats import norm, poisson, levy
+from scipy.spatial import distance
 
 class MyDroneEval(DroneAbstract):
 
@@ -45,6 +46,10 @@ class MyDroneEval(DroneAbstract):
         self.turnCounter = 0
         self.turnArg = 0
         self.walkCounter = 0
+        self.compass_angle = 0
+        self.gps_x = 0
+        self.gps_y = 0
+        self.visitedPoints = []
 
     def _is_turning(self):
             return self.isTurningLeft or self.isTurningRight
@@ -199,35 +204,83 @@ class MyDroneEval(DroneAbstract):
                 in each step, the drone follows a Hilbert curve
                 we use a randomized rotating constant sized frame to choose exploration direction
             '''
-            if(self.planningPhase): #plan next step
-                #small rotations when cornered, big rotation in open areas
-                rotation_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                self.turnArg = 0.5 if rotation_parameter > 0 else -0.5
-                self.turnCounter = min(10, poisson.rvs(math.floor(10*rotation_parameter**2), size =1))
-                #small walk when cornered, big walk in open areas
-                walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                self.walkCounter = min(20, 2*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
-                self.planningPhase = False
+            if(self.gps_is_disabled()): #random strategy
+                if(self.planningPhase): #plan next step
+                    #small rotations when cornered, big rotation in open areas
+                    rotation_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
+                    self.turnArg = 0.5 if rotation_parameter > 0 else -0.5
+                    self.turnCounter = min(30, poisson.rvs(math.floor(30*rotation_parameter**2), size =1))
+                    #small walk when cornered, big walk in open areas
+                    walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
+                    self.walkCounter = min(30, 3*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
+                    self.planningPhase = False
 
-            self.turnCounter -= 1
-            if(self.turnCounter >= 0):#rotate
-                command["rotation"] = self.turnArg
+                self.turnCounter -= 1
+                if(self.turnCounter >= 0):#rotate
+                    command["rotation"] = self.turnArg
+                    return command
+                
+                if(collided): #avoid obstacle
+                    if(far_angle > collision_angle):#add left rotation
+                        command["rotation"] = 0.5
+                    else: #add right rotation
+                        command["rotation"] = -0.5
+
+                self.walkCounter -= 1
+                if(self.walkCounter >= 0):#rotate
+                    command["forward"] = 1.0
+
+                if(self.walkCounter <= 0):
+                    self.planningPhase = True
+
                 return command
             
-            if(collided): #avoid obstacle
-                if(far_angle > collision_angle):#add left rotation
-                    command["rotation"] = 0.5
-                else: #add right rotation
-                    command["rotation"] = -0.5
+            else: #we can use gps and compass data
 
-            self.walkCounter -= 1
-            if(self.walkCounter >= 0):#rotate
-                command["forward"] = 1.0
+                self.compass_angle = self.measured_compass_angle()
+                self.gps_x = self.measured_gps_position()[0]
+                self.gps_y = self.measured_gps_position()[1]
 
-            if(self.walkCounter <= 0):
-                self.planningPhase = True
+                self.visitedPoints.append( (self.gps_x, self.gps_y) )
 
-            return command
+                if(self.planningPhase): #plan next step
+                    #compute heuristic for each rotation
+                    weights = []
+                    for i in range(31):
+                        direction_angle = self.compass_angle + i*math.pi/15
+                        point_in_direction = (self.gps_x + 10*math.cos(direction_angle), self.gps_y + 10*math.sin(direction_angle))
+                        rotation_heuristic = 0
+                        for visited in self.visitedPoints:
+                            rotation_heuristic += distance.euclidean(point_in_direction, visited)
+                        weights.append(rotation_heuristic)
+                    randomChoice = random.choices(np.arange(31), weights, k=1)
+                    self.turnCounter = randomChoice[0]
+                    self.turnArg = 0.5 if (random.uniform(-1, 1) > 0 ) else -0.5
+                    #small walk when cornered, big walk in open areas
+                    walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
+                    self.walkCounter = min(30, 3*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
+                    self.planningPhase = False
+
+                self.turnCounter -= 1
+                if(self.turnCounter >= 0):#rotate
+                    command["rotation"] = self.turnArg
+                    return command
+                
+                if(collided): #avoid obstacle
+                    if(far_angle > collision_angle):#add left rotation
+                        command["rotation"] = 0.5
+                    else: #add right rotation
+                        command["rotation"] = -0.5
+
+                self.walkCounter -= 1
+                if(self.walkCounter >= 0):#rotate
+                    command["forward"] = 1.0
+
+                if(self.walkCounter <= 0):
+                    self.planningPhase = True
+
+                return command
+                
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
             command = explore()
