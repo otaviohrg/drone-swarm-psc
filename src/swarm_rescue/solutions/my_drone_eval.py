@@ -218,7 +218,7 @@ class MyDroneEval(DroneAbstract):
                 self.compass_angle = self.measured_compass_angle()
                 self.gps_x = self.measured_gps_position()[0]
                 self.gps_y = self.measured_gps_position()[1]
-                print("GPS: ({0:.1f}, {1:.1f})".format(x, y))
+                print("GPS: ({0:.1f}, {1:.1f})".format(self.gps_x, self.gps_y))
 
                 diff_angle = normalize_angle(self.angleStopTurning - self.compass_angle)
 
