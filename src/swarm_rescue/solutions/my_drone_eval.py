@@ -199,20 +199,21 @@ class MyDroneEval(DroneAbstract):
                     "rotation": 0.0,
                     "grasper": 0.0}
 
-            '''strategy: Hilbert curves!
-                the drone path is a sequence of steps
-                in each step, the drone follows a Hilbert curve
-                we use a randomized rotating constant sized frame to choose exploration direction
-            '''
+            #rotation = 1 => 0,2 rad per step => takes 32 steps to do the whole circle at rotation = 1
+            rotation_discretization_parameter = 64
+            rotation_speed = 32/rotation_discretization_parameter
+            walk_balance_parameter = 60 #try to balance time spent spinning and time spent walking
+            heuristic_importance_parameter = 80
+
             if(self.gps_is_disabled()): #random strategy
                 if(self.planningPhase): #plan next step
                     #small rotations when cornered, big rotation in open areas
                     rotation_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.turnArg = 0.5 if rotation_parameter > 0 else -0.5
-                    self.turnCounter = min(30, poisson.rvs(math.floor(30*rotation_parameter**2), size =1))
+                    self.turnArg = rotation_speed if rotation_parameter > 0 else -rotation_speed
+                    self.turnCounter = min(rotation_discretization_parameter, poisson.rvs(math.floor(rotation_discretization_parameter*rotation_parameter**2), size =1))
                     #small walk when cornered, big walk in open areas
                     walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.walkCounter = min(30, 3*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
+                    self.walkCounter = min(walk_balance_parameter, poisson.rvs(math.floor(walk_balance_parameter*walk_parameter**2), size = 1))
                     self.planningPhase = False
 
                 self.turnCounter -= 1
@@ -221,10 +222,10 @@ class MyDroneEval(DroneAbstract):
                     return command
                 
                 if(collided): #avoid obstacle
-                    if(far_angle > collision_angle):#add left rotation
-                        command["rotation"] = 0.5
-                    else: #add right rotation
-                        command["rotation"] = -0.5
+                    if(far_angle > collision_angle):#add emergency left rotation
+                        command["rotation"] = 1
+                    else: #add emergency right rotation
+                        command["rotation"] = -1
 
                 self.walkCounter -= 1
                 if(self.walkCounter >= 0):#rotate
@@ -242,23 +243,25 @@ class MyDroneEval(DroneAbstract):
                 self.gps_y = self.measured_gps_position()[1]
 
                 self.visitedPoints.append( (self.gps_x, self.gps_y) )
+                if(len(self.visitedPoints) > 300):
+                    self.visitedPoints.pop(0) #try to limit computation time for heuristic
 
                 if(self.planningPhase): #plan next step
                     #compute heuristic for each rotation
                     weights = []
-                    for i in range(31):
-                        direction_angle = self.compass_angle + i*math.pi/15
-                        point_in_direction = (self.gps_x + 10*math.cos(direction_angle), self.gps_y + 10*math.sin(direction_angle))
+                    for i in range(rotation_discretization_parameter + 1):
+                        direction_angle = self.compass_angle + 2*i*math.pi/rotation_discretization_parameter
+                        point_in_direction = (self.gps_x + heuristic_importance_parameter*math.cos(direction_angle), self.gps_y + heuristic_importance_parameter*math.sin(direction_angle))
                         rotation_heuristic = 0
                         for visited in self.visitedPoints:
                             rotation_heuristic += distance.euclidean(point_in_direction, visited)
                         weights.append(rotation_heuristic)
-                    randomChoice = random.choices(np.arange(31), weights, k=1)
+                    randomChoice = random.choices(np.arange(rotation_discretization_parameter + 1), weights, k=1)
                     self.turnCounter = randomChoice[0]
-                    self.turnArg = 0.5 if (random.uniform(-1, 1) > 0 ) else -0.5
+                    self.turnArg = rotation_speed if (random.uniform(-1, 1) > 0 ) else -rotation_speed
                     #small walk when cornered, big walk in open areas
                     walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.walkCounter = min(30, 3*poisson.rvs(math.floor(10*walk_parameter**2), size = 1))
+                    self.walkCounter = min(walk_balance_parameter, poisson.rvs(math.floor(walk_balance_parameter*walk_parameter**2), size = 1))
                     self.planningPhase = False
 
                 self.turnCounter -= 1
@@ -267,10 +270,10 @@ class MyDroneEval(DroneAbstract):
                     return command
                 
                 if(collided): #avoid obstacle
-                    if(far_angle > collision_angle):#add left rotation
-                        command["rotation"] = 0.5
-                    else: #add right rotation
-                        command["rotation"] = -0.5
+                    if(far_angle > collision_angle):#add emergency left rotation
+                        command["rotation"] = 1
+                    else: #add emergency right rotation
+                        command["rotation"] = -1
 
                 self.walkCounter -= 1
                 if(self.walkCounter >= 0):#rotate
