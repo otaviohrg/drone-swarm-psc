@@ -223,9 +223,9 @@ class MyDroneEval(DroneAbstract):
                 
                 if(collided): #avoid obstacle
                     if(far_angle > collision_angle):#add emergency left rotation
-                        command["rotation"] = 1
+                        command["rotation"] = 0.8
                     else: #add emergency right rotation
-                        command["rotation"] = -1
+                        command["rotation"] = -0.8
 
                 self.walkCounter -= 1
                 if(self.walkCounter >= 0):#rotate
@@ -271,9 +271,9 @@ class MyDroneEval(DroneAbstract):
                 
                 if(collided): #avoid obstacle
                     if(far_angle > collision_angle):#add emergency left rotation
-                        command["rotation"] = 1
+                        command["rotation"] = 0.8
                     else: #add emergency right rotation
-                        command["rotation"] = -1
+                        command["rotation"] = -0.8
 
                 self.walkCounter -= 1
                 if(self.walkCounter >= 0):#rotate
