@@ -1,3 +1,4 @@
+# pylint: disable=import-error
 import math
 import random
 import numpy as np
@@ -11,6 +12,12 @@ from spg_overlay.utils.utils import normalize_angle, circular_mean
 
 from scipy.stats import norm, poisson, levy
 from scipy.spatial import distance
+
+#to compute best and worst angles in sensor output
+import heapq
+
+#necessary to run: pip install hilbertcurve (added to requirements.txt)
+from hilbertcurve.hilbertcurve import HilbertCurve
 
 class MyDroneEval(DroneAbstract):
 
@@ -29,7 +36,6 @@ class MyDroneEval(DroneAbstract):
         SEARCHING_RESCUE_CENTER = 3
         DROPPING_AT_RESCUE_CENTER = 4
 
-
     def __init__(self,
                  identifier: Optional[int] = None,
                  misc_data: Optional[MiscData] = None,
@@ -41,18 +47,105 @@ class MyDroneEval(DroneAbstract):
         
         # The state is initialized to searching wounded person
         self.state = self.Activity.SEARCHING_WOUNDED
-        # values used by the control function
-        self.planningPhase = True
-        self.turnCounter = 0
-        self.turnArg = 0
-        self.walkCounter = 0
-        self.compass_angle = 0
-        self.gps_x = 0
-        self.gps_y = 0
-        self.visitedPoints = []
 
+        # values used by the control function
+        self.gps_x = self.measured_gps_position()[0]/60 + 8
+        self.gps_y = self.measured_gps_position()[1]/60 + 8
+        self.compass_angle = self.measured_compass_angle()
+        self.historic_gps = []
+        
+        #HILBERT CURVE INIT
+        # Iteration of Hilbert's curve
+        self.hilbert_iter = 4
+        # Dimension of Hilber's curve
+        self.hilbert_dim = 2
+        # Number of points in Hilbert's curve
+        self.hilbert_size = 2 ** (self.hilbert_iter * self.hilbert_dim)
+        self.hilbert_sideSize = 2 ** (self.hilbert_iter * self.hilbert_dim/2)
+        # Area covered by the Hibert's curve
+        self.hilbert_xmin = 0
+        self.hilbert_ymin = 0
+        self.hilbert_xmax = 10 * self.hilbert_sideSize
+        self.hilbert_ymax = 10 * self.hilbert_sideSize
+        # Grid size
+        self.hilbert_xgrid = 1
+        self.hilbert_ygrid = 1
+        # Bounding grid
+        self.hilbert_xminGrid = self.hilbert_xmin - self.hilbert_xgrid/2
+        self.hilbert_yminGrid = self.hilbert_ymin - self.hilbert_ygrid/2
+        self.hilbert_xmaxGrid = self.hilbert_xmax + self.hilbert_xgrid/2
+        self.hilbert_ymaxGrid = self.hilbert_ymax - self.hilbert_ygrid/2
+        # Creating Hilbert's curve
+        self.hilbert_curve = HilbertCurve(self.hilbert_iter, self.hilbert_dim)
+        self.hilbert_distances = list(range(self.hilbert_size))
+        self.hilbert_points = self.hilbert_curve.points_from_distances(self.hilbert_distances)
+        self.startWayBack = False
+        self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
+        # Enumerating points on Hilbert curve
+        self.hilbert_xList = np.array([self.hilbert_points[i][0] for i in range(self.hilbert_size)])
+        self.hilbert_yList = np.array([self.hilbert_points[i][1] for i in range(self.hilbert_size)])
+
+        #parameters for random steps
+        self.counterStraight = 0
+        self.angleStopTurning = 0
+        self.counterStopStraight = 0
+        self.isTurningLeft = False
+        self.isTurningRight = False
+
+
+    def get_point_index(self, xl, yl):
+        """Calculates the index of closest point on the hilbert's curve"""
+        given_point = (xl, yl)
+        distances = []
+        for i in range(self.hilbert_size):
+            distance_i = distance.euclidean(given_point, self.hilbert_points[i])
+            distances.append(distance_i)
+        return np.argmin(distances)
+
+    def get_adjacent_nodes(self, i):
+        """Outputs the adjacent nodes of a given node"""
+        x_i = self.hilbert_xList[i]
+        y_i = self.hilbert_yList[i]
+
+        adjacent_points = {
+            "p1": [x_i + self.hilbert_xgrid, y_i],
+            "p2": [x_i, y_i + self.hilbert_ygrid],
+            "p3": [x_i - self.hilbert_xgrid, y_i],
+            "p4": [x_i, y_i - self.hilbert_ygrid],
+        }
+
+        adjacent_nodes  = []
+        for point in adjacent_points:
+            if adjacent_points[point][0] in self.hilbert_xList and adjacent_points[point][1] in self.hilbert_yList:
+                adjacent_nodes.append(self.get_point_index(adjacent_points[point][0], adjacent_points[point][1]))
+        return adjacent_nodes
+    
+    def move_to_point(self, destx, desty):#assumes gps/compass are available
+        command = {"forward": 0.5,
+                    "lateral": 0.0,
+                    "rotation": 0.0,
+                    "grasper": 0.0}
+        #CHOOSE BEST DIRECTION 3 possibilities: rotation=1, rotation=0 or rotation=-1
+
+        #rotation = 1 => 0,2 rad per step => takes 32 steps to do the whole circle at rotation = 1
+        rotation_discretization_parameter = 64
+        rotation_speed = 32/rotation_discretization_parameter
+
+        dest = (destx, desty)
+        candidates = [-1, 0, 1]
+        criteria = []
+        for i in candidates:
+            direction_angle = self.compass_angle + 2*i*math.pi/rotation_discretization_parameter
+            point_in_direction = (self.gps_x + math.cos(direction_angle), self.gps_y + math.sin(direction_angle))
+            criteria.append(distance.euclidean(point_in_direction, dest))
+
+        i_chosen = candidates[np.argmin(criteria)]
+        command["rotation"] = i_chosen*rotation_speed
+
+        return command
+        
     def _is_turning(self):
-            return self.isTurningLeft or self.isTurningRight
+        return self.isTurningLeft or self.isTurningRight
 
     def process_lidar_sensor(self):
         """
@@ -60,20 +153,22 @@ class MyDroneEval(DroneAbstract):
         """
 
         lidar_sensor = self.lidar()
-        values = lidar_sensor.get_sensor_values()
+        values = lidar_sensor.get_sensor_values().tolist()
         ray_angles = lidar_sensor.ray_angles
         size = lidar_sensor.resolution
 
-        collision_angle = 0
-        far_angle = 0
+        collision_angles = 0
+        far_angles = 0
         min_dist = 0
         max_dist = 0
         if size != 0:
-            # collision_angle: angle with smallest distance
-            collision_angle = ray_angles[np.argmin(values)]
+            # collision_angles: angles with smallest distances
+            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(10, values)]
+            collision_angles = ray_angles[collision_angle_indexes]
             min_dist = min(values)
-            # far_angle: angle with biggest distance
-            far_angle = ray_angles[np.argmax(values)]
+            # far_angles: angles with biggest distances
+            far_angle_indexes = [values.index(i) for i in heapq.nlargest(10, values)]
+            far_angles = ray_angles[far_angle_indexes]
             max_dist = max(values)
 
         if self.lidar_values() is None:
@@ -82,10 +177,10 @@ class MyDroneEval(DroneAbstract):
         collided = False
         dist = min(self.lidar_values())
 
-        if dist < 40:
+        if dist < 100:
             collided = True
 
-        return collided, collision_angle, far_angle, min_dist, max_dist
+        return collided, collision_angles, far_angles, min_dist, max_dist
 
     def process_semantic_sensor(self):
         """
@@ -161,7 +256,7 @@ class MyDroneEval(DroneAbstract):
                    "grasper": 0}
 
         found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
-        collided, collision_angle, far_angle, min_dist, max_dist = self.process_lidar_sensor()
+        collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
 
         #############
         # TRANSITIONS OF THE STATE MACHINE
@@ -189,101 +284,79 @@ class MyDroneEval(DroneAbstract):
 
         ##########
         # COMMANDS FOR EACH STATE
-        # Searching randomly, but when a rescue center or wounded person is detected, we use a special command
+        # Searching, but when a rescue center or wounded person is detected, we use a special command
         ##########
 
         def explore():
 
-            command = {"forward": 0.0,
-                    "lateral": 0.0,
-                    "rotation": 0.0,
-                    "grasper": 0.0}
+            self.gps_x = self.measured_gps_position()[0]/60 + 8
+            self.gps_y = self.measured_gps_position()[1]/60 + 8
+            self.historic_gps.append((self.gps_x, self.gps_y))
+            if(len(self.historic_gps) > 100):
+                self.historic_gps.pop(0)
+            self.compass_angle = self.measured_compass_angle()
 
-            #rotation = 1 => 0,2 rad per step => takes 32 steps to do the whole circle at rotation = 1
-            rotation_discretization_parameter = 64
-            rotation_speed = 32/rotation_discretization_parameter
-            walk_balance_parameter = 60 #try to balance time spent spinning and time spent walking
-            heuristic_importance_parameter = 80
+            #we essentially do DFS, vertices are the points on the Hilbert curve
+            closest_hilbert_point_index = self.get_point_index(self.gps_x, self.gps_y)
+            #print(f"Closest ({closest_hilbert_point_index}, {self.hilbert_visited_flags[closest_hilbert_point_index]})")
 
-            if(self.gps_is_disabled()): #random strategy
-                if(self.planningPhase): #plan next step
-                    #small rotations when cornered, big rotation in open areas
-                    rotation_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.turnArg = rotation_speed if rotation_parameter > 0 else -rotation_speed
-                    self.turnCounter = min(rotation_discretization_parameter, poisson.rvs(math.floor(rotation_discretization_parameter*rotation_parameter**2), size =1))
-                    #small walk when cornered, big walk in open areas
-                    walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.walkCounter = min(walk_balance_parameter, poisson.rvs(math.floor(walk_balance_parameter*walk_parameter**2), size = 1))
-                    self.planningPhase = False
+            adjacent_node_indexes  = self.get_adjacent_nodes(closest_hilbert_point_index)
+            for candidate_node in adjacent_node_indexes:
+                if(self.hilbert_visited_flags[candidate_node] < 3):
 
-                self.turnCounter -= 1
-                if(self.turnCounter >= 0):#rotate
-                    command["rotation"] = self.turnArg
+                    #reset random step parameters
+                    self.isTurningLeft = False
+                    self.isTurningRight = False
+                    self.counterStraight = 1
+                    self.counterStopStraigt = 0
+
+                    self.hilbert_visited_flags[candidate_node] += 1
+                    print(f"At ({self.gps_x}, {self.gps_y}) going to ({self.hilbert_xList[candidate_node]}, {self.hilbert_yList[candidate_node]})")
+                    command = self.move_to_point(self.hilbert_xList[candidate_node], self.hilbert_yList[candidate_node])
                     return command
-                
-                if(collided): #avoid obstacle
-                    if(far_angle > collision_angle):#add emergency left rotation
-                        command["rotation"] = 0.8
-                    else: #add emergency right rotation
-                        command["rotation"] = -0.8
 
-                self.walkCounter -= 1
-                if(self.walkCounter >= 0):#rotate
-                    command["forward"] = 1.0
-
-                if(self.walkCounter <= 0):
-                    self.planningPhase = True
-
-                return command
+            #if we got here => candidate nodes are all visited already => random walk to find other vertices
             
-            else: #we can use gps and compass data
+            command_straight = {"forward": 1.0,
+                            "rotation": 0.0}
+            command_turn_left = {"forward": 0.0,
+                            "rotation": 1.0}
+            command_turn_right = {"forward": 0.0,
+                            "rotation": -1.0}
 
-                self.compass_angle = self.measured_compass_angle()
-                self.gps_x = self.measured_gps_position()[0]
-                self.gps_y = self.measured_gps_position()[1]
+            self.counterStraight += 1
 
-                self.visitedPoints.append( (self.gps_x, self.gps_y) )
-                if(len(self.visitedPoints) > 300):
-                    self.visitedPoints.pop(0) #try to limit computation time for heuristic
+            if not self._is_turning() and self.counterStraight > self.counterStopStraight:
+                #pick far_angle with biggest heuristic
+                weights = []
+                for angle in far_angles:
+                    direction_angle = self.compass_angle + angle
+                    point_in_direction = (self.gps_x + 20*math.cos(direction_angle), self.gps_y + 20*math.sin(direction_angle))
+                    rotation_heuristic = 1e9
+                    for visited in self.historic_gps:
+                        rotation_heuristic = min(rotation_heuristic, distance.euclidean(point_in_direction, visited))
+                    weights.append(rotation_heuristic)
+                self.angleStopTurning = self.compass_angle + far_angles[np.argmax(weights)]
 
-                if(self.planningPhase): #plan next step
-                    #compute heuristic for each rotation
-                    weights = []
-                    for i in range(rotation_discretization_parameter + 1):
-                        direction_angle = self.compass_angle + 2*i*math.pi/rotation_discretization_parameter
-                        point_in_direction = (self.gps_x + heuristic_importance_parameter*math.cos(direction_angle), self.gps_y + heuristic_importance_parameter*math.sin(direction_angle))
-                        rotation_heuristic = 0
-                        for visited in self.visitedPoints:
-                            rotation_heuristic += distance.euclidean(point_in_direction, visited)
-                        weights.append(rotation_heuristic)
-                    randomChoice = random.choices(np.arange(rotation_discretization_parameter + 1), weights, k=1)
-                    self.turnCounter = randomChoice[0]
-                    self.turnArg = rotation_speed if (random.uniform(-1, 1) > 0 ) else -rotation_speed
-                    #small walk when cornered, big walk in open areas
-                    walk_parameter = norm.rvs()*((max_dist - min_dist)/(max_dist + 0.001))
-                    self.walkCounter = min(walk_balance_parameter, poisson.rvs(math.floor(walk_balance_parameter*walk_parameter**2), size = 1))
-                    self.planningPhase = False
+                diff_angle = normalize_angle(self.angleStopTurning - self.measured_compass_angle())
+                if diff_angle > 0:
+                    self.isTurningLeft = True
+                else:
+                    self.isTurningRight = True
 
-                self.turnCounter -= 1
-                if(self.turnCounter >= 0):#rotate
-                    command["rotation"] = self.turnArg
-                    return command
-                
-                if(collided): #avoid obstacle
-                    if(far_angle > collision_angle):#add emergency left rotation
-                        command["rotation"] = 0.8
-                    else: #add emergency right rotation
-                        command["rotation"] = -0.8
+            diff_angle = normalize_angle(self.angleStopTurning - self.measured_compass_angle())
+            if self._is_turning() and abs(diff_angle) < 0.2:
+                self.isTurningLeft = False
+                self.isTurningRight = False
+                self.counterStraight = 0
+                self.counterStopStraight = 20
 
-                self.walkCounter -= 1
-                if(self.walkCounter >= 0):#rotate
-                    command["forward"] = 1.0
-
-                if(self.walkCounter <= 0):
-                    self.planningPhase = True
-
-                return command
-                
+            if self.isTurningLeft:
+                return command_turn_left
+            elif self.isTurningRight:
+                return command_turn_right
+            else:
+                return command_straight
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
             command = explore()
@@ -294,7 +367,10 @@ class MyDroneEval(DroneAbstract):
             command["grasper"] = 1
 
         elif self.state is self.Activity.SEARCHING_RESCUE_CENTER:
-            command = explore()
+            if(self.startWayBack is False):#reset Hilbert curve and explore again
+                self.startWayBack = True
+                self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
+            command = explore() 
             command["grasper"] = 1
 
         elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER:
