@@ -298,7 +298,6 @@ class MyDroneEval(DroneAbstract):
 
             #we essentially do DFS, vertices are the points on the Hilbert curve
             closest_hilbert_point_index = self.get_point_index(self.gps_x, self.gps_y)
-            #print(f"Closest ({closest_hilbert_point_index}, {self.hilbert_visited_flags[closest_hilbert_point_index]})")
 
             adjacent_node_indexes  = self.get_adjacent_nodes(closest_hilbert_point_index)
             for candidate_node in adjacent_node_indexes:
@@ -311,7 +310,6 @@ class MyDroneEval(DroneAbstract):
                     self.counterStopStraigt = 0
 
                     self.hilbert_visited_flags[candidate_node] += 1
-                    print(f"At ({self.gps_x}, {self.gps_y}) going to ({self.hilbert_xList[candidate_node]}, {self.hilbert_yList[candidate_node]})")
                     command = self.move_to_point(self.hilbert_xList[candidate_node], self.hilbert_yList[candidate_node])
                     return command
 
@@ -327,7 +325,7 @@ class MyDroneEval(DroneAbstract):
             self.counterStraight += 1
 
             if not self._is_turning() and self.counterStraight > self.counterStopStraight:
-                #pick far_angle with biggest heuristic
+                #pick far_angle with best heuristic
                 weights = []
                 for angle in far_angles:
                     direction_angle = self.compass_angle + angle
