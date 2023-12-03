@@ -81,6 +81,8 @@ class MyDroneEval(DroneAbstract):
         self.hilbert_points = self.hilbert_curve.points_from_distances(self.hilbert_distances)
         self.startWayBack = False
         self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
+        self.visit_limit = 3
+        self.emergency_reset = 0
         # Enumerating points on Hilbert curve
         self.hilbert_xList = np.array([self.hilbert_points[i][0] for i in range(self.hilbert_size)])
         self.hilbert_yList = np.array([self.hilbert_points[i][1] for i in range(self.hilbert_size)])
@@ -120,6 +122,26 @@ class MyDroneEval(DroneAbstract):
                 adjacent_nodes.append(self.get_point_index(adjacent_points[point][0], adjacent_points[point][1]))
         return adjacent_nodes
     
+    def get_unexplored_adjacent_nodes(self, i):
+        """Outputs the unexplored adjacent nodes of a given node """
+        x_i = self.hilbert_xList[i]
+        y_i = self.hilbert_yList[i]
+
+        adjacent_points = {
+            "p1": [x_i + self.hilbert_xgrid, y_i],
+            "p2": [x_i, y_i + self.hilbert_ygrid],
+            "p3": [x_i - self.hilbert_xgrid, y_i],
+            "p4": [x_i, y_i - self.hilbert_ygrid],
+        }
+
+        adjacent_nodes  = []
+        for point in adjacent_points:
+            if adjacent_points[point][0] in self.hilbert_xList and adjacent_points[point][1] in self.hilbert_yList:
+                candidate_point = self.get_point_index(adjacent_points[point][0], adjacent_points[point][1])
+                if self.hilbert_visited_flags[candidate_point] < self.visit_limit:
+                    adjacent_nodes.append(candidate_point)
+        return adjacent_nodes
+
     def move_to_point(self, destx, desty):#assumes gps/compass are available
         command = {"forward": 0.5,
                     "lateral": 0.0,
@@ -292,7 +314,7 @@ class MyDroneEval(DroneAbstract):
             self.gps_x = self.measured_gps_position()[0]/60 + 8
             self.gps_y = self.measured_gps_position()[1]/60 + 8
             self.historic_gps.append((self.gps_x, self.gps_y))
-            if(len(self.historic_gps) > 100):
+            if(len(self.historic_gps) > 300):
                 self.historic_gps.pop(0)
             self.compass_angle = self.measured_compass_angle()
 
@@ -301,7 +323,7 @@ class MyDroneEval(DroneAbstract):
 
             adjacent_node_indexes  = self.get_adjacent_nodes(closest_hilbert_point_index)
             for candidate_node in adjacent_node_indexes:
-                if(self.hilbert_visited_flags[candidate_node] < 3):
+                if(self.hilbert_visited_flags[candidate_node] < self.visit_limit):
 
                     #reset random step parameters
                     self.isTurningLeft = False
@@ -311,6 +333,7 @@ class MyDroneEval(DroneAbstract):
 
                     self.hilbert_visited_flags[candidate_node] += 1
                     command = self.move_to_point(self.hilbert_xList[candidate_node], self.hilbert_yList[candidate_node])
+                    self.emergency_reset = 0
                     return command
 
             #if we got here => candidate nodes are all visited already => random walk to find other vertices
@@ -330,6 +353,8 @@ class MyDroneEval(DroneAbstract):
                 for angle in far_angles:
                     direction_angle = self.compass_angle + angle
                     point_in_direction = (self.gps_x + 20*math.cos(direction_angle), self.gps_y + 20*math.sin(direction_angle))
+                    #hilbert_point_in_direction = self.get_point_index(point_in_direction[0], point_in_direction[1])
+                    #unexplored_nodes_in_direction  = self.get_unexplored_adjacent_nodes(hilbert_point_in_direction)
                     rotation_heuristic = 1e9
                     for visited in self.historic_gps:
                         rotation_heuristic = min(rotation_heuristic, distance.euclidean(point_in_direction, visited))
@@ -348,6 +373,11 @@ class MyDroneEval(DroneAbstract):
                 self.isTurningRight = False
                 self.counterStraight = 0
                 self.counterStopStraight = 20
+
+            self.emergency_reset += 1
+            if(self.emergency_reset >= 40):
+                self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
+                self.emergency_reset = 0
 
             if self.isTurningLeft:
                 return command_turn_left
