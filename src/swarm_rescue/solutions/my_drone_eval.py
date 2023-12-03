@@ -10,14 +10,11 @@ from spg_overlay.utils.misc_data import MiscData
 from spg_overlay.entities.drone_distance_sensors import DroneSemanticSensor
 from spg_overlay.utils.utils import normalize_angle, circular_mean
 
-from scipy.stats import norm, poisson, levy
+from solutions.RRT import RRT
 from scipy.spatial import distance
 
 #to compute best and worst angles in sensor output
 import heapq
-
-#necessary to run: pip install hilbertcurve (added to requirements.txt)
-from hilbertcurve.hilbertcurve import HilbertCurve
 
 class MyDroneEval(DroneAbstract):
 
@@ -49,98 +46,25 @@ class MyDroneEval(DroneAbstract):
         self.state = self.Activity.SEARCHING_WOUNDED
 
         # values used by the control function
-        self.gps_x = self.measured_gps_position()[0]/60 + 8
-        self.gps_y = self.measured_gps_position()[1]/60 + 8
+        self.gps_x = self.measured_gps_position()[0]
+        self.gps_y = self.measured_gps_position()[1]
         self.compass_angle = self.measured_compass_angle()
         self.historic_gps = []
-        
-        #HILBERT CURVE INIT
-        # Iteration of Hilbert's curve
-        self.hilbert_iter = 4
-        # Dimension of Hilber's curve
-        self.hilbert_dim = 2
-        # Number of points in Hilbert's curve
-        self.hilbert_size = 2 ** (self.hilbert_iter * self.hilbert_dim)
-        self.hilbert_sideSize = 2 ** (self.hilbert_iter * self.hilbert_dim/2)
-        # Area covered by the Hibert's curve
-        self.hilbert_xmin = 0
-        self.hilbert_ymin = 0
-        self.hilbert_xmax = 10 * self.hilbert_sideSize
-        self.hilbert_ymax = 10 * self.hilbert_sideSize
-        # Grid size
-        self.hilbert_xgrid = 1
-        self.hilbert_ygrid = 1
-        # Bounding grid
-        self.hilbert_xminGrid = self.hilbert_xmin - self.hilbert_xgrid/2
-        self.hilbert_yminGrid = self.hilbert_ymin - self.hilbert_ygrid/2
-        self.hilbert_xmaxGrid = self.hilbert_xmax + self.hilbert_xgrid/2
-        self.hilbert_ymaxGrid = self.hilbert_ymax - self.hilbert_ygrid/2
-        # Creating Hilbert's curve
-        self.hilbert_curve = HilbertCurve(self.hilbert_iter, self.hilbert_dim)
-        self.hilbert_distances = list(range(self.hilbert_size))
-        self.hilbert_points = self.hilbert_curve.points_from_distances(self.hilbert_distances)
-        self.startWayBack = False
-        self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
-        self.visit_limit = 3
-        self.emergency_reset = 0
-        # Enumerating points on Hilbert curve
-        self.hilbert_xList = np.array([self.hilbert_points[i][0] for i in range(self.hilbert_size)])
-        self.hilbert_yList = np.array([self.hilbert_points[i][1] for i in range(self.hilbert_size)])
 
-        #parameters for random steps
+        self.RRT = RRT()
+        self.currentPoint = (self.gps_x, self.gps_y)
+        self.RRT.addNode(self.currentPoint, None) #add initial node (root) to tree
+        self.previousPoint = None
+
+        self.builtWayBack = False
+        self.path = []
+
+        # parameters for controlling steps
         self.counterStraight = 0
         self.angleStopTurning = 0
-        self.counterStopStraight = 0
+        self.distStopStraight = 0
         self.isTurningLeft = False
         self.isTurningRight = False
-
-
-    def get_point_index(self, xl, yl):
-        """Calculates the index of closest point on the hilbert's curve"""
-        given_point = (xl, yl)
-        distances = []
-        for i in range(self.hilbert_size):
-            distance_i = distance.euclidean(given_point, self.hilbert_points[i])
-            distances.append(distance_i)
-        return np.argmin(distances)
-
-    def get_adjacent_nodes(self, i):
-        """Outputs the adjacent nodes of a given node"""
-        x_i = self.hilbert_xList[i]
-        y_i = self.hilbert_yList[i]
-
-        adjacent_points = {
-            "p1": [x_i + self.hilbert_xgrid, y_i],
-            "p2": [x_i, y_i + self.hilbert_ygrid],
-            "p3": [x_i - self.hilbert_xgrid, y_i],
-            "p4": [x_i, y_i - self.hilbert_ygrid],
-        }
-
-        adjacent_nodes  = []
-        for point in adjacent_points:
-            if adjacent_points[point][0] in self.hilbert_xList and adjacent_points[point][1] in self.hilbert_yList:
-                adjacent_nodes.append(self.get_point_index(adjacent_points[point][0], adjacent_points[point][1]))
-        return adjacent_nodes
-    
-    def get_unexplored_adjacent_nodes(self, i):
-        """Outputs the unexplored adjacent nodes of a given node """
-        x_i = self.hilbert_xList[i]
-        y_i = self.hilbert_yList[i]
-
-        adjacent_points = {
-            "p1": [x_i + self.hilbert_xgrid, y_i],
-            "p2": [x_i, y_i + self.hilbert_ygrid],
-            "p3": [x_i - self.hilbert_xgrid, y_i],
-            "p4": [x_i, y_i - self.hilbert_ygrid],
-        }
-
-        adjacent_nodes  = []
-        for point in adjacent_points:
-            if adjacent_points[point][0] in self.hilbert_xList and adjacent_points[point][1] in self.hilbert_yList:
-                candidate_point = self.get_point_index(adjacent_points[point][0], adjacent_points[point][1])
-                if self.hilbert_visited_flags[candidate_point] < self.visit_limit:
-                    adjacent_nodes.append(candidate_point)
-        return adjacent_nodes
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
         command = {"forward": 0.5,
@@ -185,11 +109,11 @@ class MyDroneEval(DroneAbstract):
         max_dist = 0
         if size != 0:
             # collision_angles: angles with smallest distances
-            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(10, values)]
+            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(15, values)]
             collision_angles = ray_angles[collision_angle_indexes]
             min_dist = min(values)
             # far_angles: angles with biggest distances
-            far_angle_indexes = [values.index(i) for i in heapq.nlargest(10, values)]
+            far_angle_indexes = [values.index(i) for i in heapq.nlargest(15, values)]
             far_angles = ray_angles[far_angle_indexes]
             max_dist = max(values)
 
@@ -204,6 +128,13 @@ class MyDroneEval(DroneAbstract):
 
         return collided, collision_angles, far_angles, min_dist, max_dist
 
+    def can_see_rescue_center(self):
+        detection_semantic = self.semantic_values()
+        for data in detection_semantic:
+                if data.entity_type == DroneSemanticSensor.TypeEntity.RESCUE_CENTER:
+                    return True
+        return False
+    
     def process_semantic_sensor(self):
         """
         According to his state in the state machine, the Drone will move towards a wound person or the rescue center
@@ -271,18 +202,13 @@ class MyDroneEval(DroneAbstract):
         return found_wounded, found_rescue_center, command
 
     def control(self):
-
-        command = {"forward": 0.0,
-                   "lateral": 0.0,
-                   "rotation": 0.0,
-                   "grasper": 0}
-
-        found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
-        collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
+        '''Returns command to control drone at each step of the simulation'''
 
         #############
         # TRANSITIONS OF THE STATE MACHINE
         #############
+
+        found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
 
         if self.state is self.Activity.SEARCHING_WOUNDED and found_wounded:
             self.state = self.Activity.GRASPING_WOUNDED
@@ -306,87 +232,89 @@ class MyDroneEval(DroneAbstract):
 
         ##########
         # COMMANDS FOR EACH STATE
-        # Searching, but when a rescue center or wounded person is detected, we use a special command
         ##########
 
+        command_straight = {"forward": 1.0,
+                            "lateral": 0.0,
+                            "rotation": 0.0,
+                            "grasper": 0}
+        command_turn_left = {"forward": 0.0,
+                            "lateral": 0.0,
+                            "rotation": 1.0,
+                            "grasper": 0}
+        command_turn_right = {"forward": 0.0,
+                            "lateral": 0.0,
+                            "rotation": -1.0,
+                            "grasper": 0}
+
+        collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
+
+        self.gps_x = self.measured_gps_position()[0]
+        self.gps_y = self.measured_gps_position()[1]
+        self.compass_angle = self.measured_compass_angle()
+
+        self.previousPoint = self.currentPoint
+        self.currentPoint = (round(self.gps_x), round(self.gps_y))
+        
+        if(not self.RRT.alreadyVisited(self.currentPoint)): #add node to Tree and edge to parent
+            previousNode = self.RRT.getNodeIndex(self.previousPoint)
+            self.RRT.addNode(self.currentPoint, self.RRT.nodes[previousNode])
+            self.RRT.addEdge(self.previousPoint, self.currentPoint)
+        
+        if(self.can_see_rescue_center()):
+            self.RRT.rescueCenterNode = self.RRT.getNodeIndex(self.currentPoint)
+
         def explore():
-
-            self.gps_x = self.measured_gps_position()[0]/60 + 8
-            self.gps_y = self.measured_gps_position()[1]/60 + 8
-            self.historic_gps.append((self.gps_x, self.gps_y))
-            if(len(self.historic_gps) > 300):
-                self.historic_gps.pop(0)
-            self.compass_angle = self.measured_compass_angle()
-
-            #we essentially do DFS, vertices are the points on the Hilbert curve
-            closest_hilbert_point_index = self.get_point_index(self.gps_x, self.gps_y)
-
-            adjacent_node_indexes  = self.get_adjacent_nodes(closest_hilbert_point_index)
-            for candidate_node in adjacent_node_indexes:
-                if(self.hilbert_visited_flags[candidate_node] < self.visit_limit):
-
-                    #reset random step parameters
-                    self.isTurningLeft = False
-                    self.isTurningRight = False
-                    self.counterStraight = 1
-                    self.counterStopStraigt = 0
-
-                    self.hilbert_visited_flags[candidate_node] += 1
-                    command = self.move_to_point(self.hilbert_xList[candidate_node], self.hilbert_yList[candidate_node])
-                    self.emergency_reset = 0
-                    return command
-
-            #if we got here => candidate nodes are all visited already => random walk to find other vertices
-            
-            command_straight = {"forward": 1.0,
-                            "rotation": 0.0}
-            command_turn_left = {"forward": 0.0,
-                            "rotation": 1.0}
-            command_turn_right = {"forward": 0.0,
-                            "rotation": -1.0}
+            '''move towards a random point in collision free space'''
 
             self.counterStraight += 1
 
-            if not self._is_turning() and self.counterStraight > self.counterStopStraight:
-                #pick far_angle with best heuristic
-                weights = []
-                for angle in far_angles:
-                    direction_angle = self.compass_angle + angle
-                    point_in_direction = (self.gps_x + 20*math.cos(direction_angle), self.gps_y + 20*math.sin(direction_angle))
-                    #hilbert_point_in_direction = self.get_point_index(point_in_direction[0], point_in_direction[1])
-                    #unexplored_nodes_in_direction  = self.get_unexplored_adjacent_nodes(hilbert_point_in_direction)
-                    rotation_heuristic = 1e9
-                    for visited in self.historic_gps:
-                        rotation_heuristic = min(rotation_heuristic, distance.euclidean(point_in_direction, visited))
-                    weights.append(rotation_heuristic)
-                self.angleStopTurning = self.compass_angle + far_angles[np.argmax(weights)]
-
-                diff_angle = normalize_angle(self.angleStopTurning - self.measured_compass_angle())
-                if diff_angle > 0:
+            if collided and (not self._is_turning()) and (self.counterStraight > self.distStopStraight):
+                #calculate next step
+                u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
+                self.angleStopTurning = angle
+                if(self.angleStopTurning < 0):
                     self.isTurningLeft = True
+                    self.isTurningRight = False
                 else:
+                    self.isTurningLeft = False
                     self.isTurningRight = True
+                    self.counterStraight = 0
+                    self.distStopStraight = round(distance.euclidean((self.gps_x, self.gps_y), u_rand))
 
-            diff_angle = normalize_angle(self.angleStopTurning - self.measured_compass_angle())
+            #continue executing step
+            measured_angle = 0
+            if self.measured_compass_angle() is not None:
+                measured_angle = self.measured_compass_angle()
+
+            diff_angle = normalize_angle(self.angleStopTurning - measured_angle)
             if self._is_turning() and abs(diff_angle) < 0.2:
                 self.isTurningLeft = False
                 self.isTurningRight = False
-                self.counterStraight = 0
-                self.counterStopStraight = 20
 
-            self.emergency_reset += 1
-            if(self.emergency_reset >= 40):
-                self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
-                self.emergency_reset = 0
-
-            if self.isTurningLeft:
-                return command_turn_left
-            elif self.isTurningRight:
-                return command_turn_right
+            if self._is_turning():
+                return command_turn_left if self.isTurningLeft else command_turn_right
             else:
                 return command_straight
+        
+        def way_back():
+
+            if(self.RRT.rescueCenterNode is None):
+                return explore()
+            else:
+                if(not self.builtWayBack): #build path back to rescue center
+                    node_u = self.RRT.nodes[self.RRT.getNodeIndex(self.currentPoint)]
+                    node_v = self.RRT.nodes[self.RRT.rescueCenterNode]
+                    path = self.RRT.build_path(node_u, node_v)
+
+                #we move towards path[0] (next point in path)
+                if(self.currentPoint == (path[0].x, path[0].y)):
+                    path.pop(0)
+                return self.move_to_point(path[0].x, path[0].y)
+
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
+            self.builtWayBack = False
             command = explore()
             command["grasper"] = 0
 
@@ -395,10 +323,7 @@ class MyDroneEval(DroneAbstract):
             command["grasper"] = 1
 
         elif self.state is self.Activity.SEARCHING_RESCUE_CENTER:
-            if(self.startWayBack is False):#reset Hilbert curve and explore again
-                self.startWayBack = True
-                self.hilbert_visited_flags = [0 for i in range(self.hilbert_size)]
-            command = explore() 
+            command = way_back() 
             command["grasper"] = 1
 
         elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER:
