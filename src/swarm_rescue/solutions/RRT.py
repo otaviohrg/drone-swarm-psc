@@ -5,7 +5,7 @@ Note: The real edge set might be smaller than E. If a Wall blocks an edge, we sa
 
 Goal: During exploration, we want to build a spanning tree T(V, E')
 When drones find a wounded person:
-    if path to rescue center exists in random tree => go to rescue center
+    if path to rescue center exists in tree => go to rescue center
     else continue building tree until path exists
 
 Ideally, all drones would share the same spanning tree, but I don't know if that's possible :(
