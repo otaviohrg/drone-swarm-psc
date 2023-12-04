@@ -75,13 +75,19 @@ class RRT:
             direction_angle = compass_angle + angle
             direction_vector = (math.cos(direction_angle), math.sin(direction_angle))
 
-            for i in range(2, 4):
-                point_in_direction = (round(x + 10*(i+1)*direction_vector[0]), round(y + 10*(i+1)*direction_vector[1]))
+            for i in range(2, 8):
+                point_in_direction = (round(x + (i+1)*direction_vector[0]), round(y + (i+1)*direction_vector[1]))
+                
                 if(not self.alreadyVisited(point_in_direction)):
                     candidate_points.append((point_in_direction, direction_angle))
 
-        u_rand = random.choice(candidate_points)
-        return u_rand[0], u_rand[1]
+        if(len(candidate_points) > 0):
+            u_rand = random.choice(candidate_points)
+            return u_rand[0], u_rand[1]
+        else: #backtracking, let's return to parent
+            node_index = self.getNodeIndex((x,y))
+            parent_node = self.nodes[node_index].parentNode
+            return parent_node.x, parent_node.y
 
     def lca(self, u, v):
         '''compute lowest common ancestor of nodes u and v'''

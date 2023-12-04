@@ -50,6 +50,7 @@ class MyDroneEval(DroneAbstract):
         self.gps_y = self.measured_gps_position()[1]
         self.compass_angle = self.measured_compass_angle()
         self.historic_gps = []
+        self.historic_angle = []
 
         self.RRT = RRT()
         self.currentPoint = (self.gps_x, self.gps_y)
@@ -90,6 +91,42 @@ class MyDroneEval(DroneAbstract):
 
         return command
         
+    def get_gps_values(self):
+        '''Return GPS values if available, else use historic_gps to predict position'''
+        scaling_factor = 60
+        if self.gps_is_disabled():
+            last_position = self.historic_gps[-1]
+            last_angle = self.historic_angle[-1]
+            if self._is_turning():
+                return last_position[0], last_position[1]
+            else:
+                return last_position[0] + math.cos(last_angle)/scaling_factor, last_position[1] + math.sin(last_angle)/scaling_factor
+        else:
+            return self.measured_gps_position()[0]/scaling_factor, self.measured_gps_position()[1]/scaling_factor
+
+    def update_gps_values(self):
+        self.gps_x, self.gps_y = self.get_gps_values()
+        self.historic_gps.append((self.gps_x, self.gps_y))
+        if len(self.historic_gps) > 300:
+            self.historic_gps.pop(0)
+
+    def get_compass_values(self):
+        if self.compass_is_disabled():
+            last_angle = self.historic_angle[-1]
+            if self._is_turning():
+                return last_angle + 0.2
+            else:
+                return last_angle
+        else:
+            return self.measured_compass_angle()
+
+    def update_compass_values(self):
+        self.compass_angle = self.get_compass_values()
+        self.historic_angle.append(self.compass_angle)
+        if len(self.historic_angle) > 300:
+            self.historic_angle.pop(0)
+
+
     def _is_turning(self):
         return self.isTurningLeft or self.isTurningRight
 
@@ -108,12 +145,16 @@ class MyDroneEval(DroneAbstract):
         min_dist = 0
         max_dist = 0
         if size != 0:
+
             # collision_angles: angles with smallest distances
-            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(15, values)]
+            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(10, values)]
             collision_angles = ray_angles[collision_angle_indexes]
             min_dist = min(values)
-            # far_angles: angles with biggest distances
-            far_angle_indexes = [values.index(i) for i in heapq.nlargest(15, values)]
+
+            far_angle_indexes = []
+            for i in range(size):
+                if(values[i] >= 120): # far_angles: angles with big enough distances
+                    far_angle_indexes.append(i)
             far_angles = ray_angles[far_angle_indexes]
             max_dist = max(values)
 
@@ -249,14 +290,16 @@ class MyDroneEval(DroneAbstract):
 
         collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
 
-        self.gps_x = self.measured_gps_position()[0]
-        self.gps_y = self.measured_gps_position()[1]
-        self.compass_angle = self.measured_compass_angle()
+        self.update_gps_values()
+        self.update_compass_values()
 
         self.previousPoint = self.currentPoint
         self.currentPoint = (round(self.gps_x), round(self.gps_y))
+
+        #print(f"Let's check {self.currentPoint}")
         
         if(not self.RRT.alreadyVisited(self.currentPoint)): #add node to Tree and edge to parent
+            print(f"Added to tree {self.currentPoint} parent {self.previousPoint}")
             previousNode = self.RRT.getNodeIndex(self.previousPoint)
             self.RRT.addNode(self.currentPoint, self.RRT.nodes[previousNode])
             self.RRT.addEdge(self.previousPoint, self.currentPoint)
@@ -267,35 +310,8 @@ class MyDroneEval(DroneAbstract):
         def explore():
             '''move towards a random point in collision free space'''
 
-            self.counterStraight += 1
-
-            if collided and (not self._is_turning()) and (self.counterStraight > self.distStopStraight):
-                #calculate next step
-                u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
-                self.angleStopTurning = angle
-                if(self.angleStopTurning < 0):
-                    self.isTurningLeft = True
-                    self.isTurningRight = False
-                else:
-                    self.isTurningLeft = False
-                    self.isTurningRight = True
-                    self.counterStraight = 0
-                    self.distStopStraight = round(distance.euclidean((self.gps_x, self.gps_y), u_rand))
-
-            #continue executing step
-            measured_angle = 0
-            if self.measured_compass_angle() is not None:
-                measured_angle = self.measured_compass_angle()
-
-            diff_angle = normalize_angle(self.angleStopTurning - measured_angle)
-            if self._is_turning() and abs(diff_angle) < 0.2:
-                self.isTurningLeft = False
-                self.isTurningRight = False
-
-            if self._is_turning():
-                return command_turn_left if self.isTurningLeft else command_turn_right
-            else:
-                return command_straight
+            u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
+            return self.move_to_point(u_rand[0], u_rand[1])      
         
         def way_back():
 
@@ -305,12 +321,16 @@ class MyDroneEval(DroneAbstract):
                 if(not self.builtWayBack): #build path back to rescue center
                     node_u = self.RRT.nodes[self.RRT.getNodeIndex(self.currentPoint)]
                     node_v = self.RRT.nodes[self.RRT.rescueCenterNode]
-                    path = self.RRT.build_path(node_u, node_v)
+                    self.path = self.RRT.build_path(node_u, node_v)
+                    self.builtWayBack = True
 
                 #we move towards path[0] (next point in path)
-                if(self.currentPoint == (path[0].x, path[0].y)):
-                    path.pop(0)
-                return self.move_to_point(path[0].x, path[0].y)
+                if(self.currentPoint == (self.path[0].x, self.path[0].y)):
+                    self.path.pop(0)
+                
+                if(len(self.path) > 0):
+                    return self.move_to_point(self.path[0].x, self.path[0].y)
+                return command_straight
 
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
