@@ -325,11 +325,11 @@ class MyDroneEval(DroneAbstract):
                     self.builtWayBack = True
 
                 #we move towards path[0] (next point in path)
-                if(self.currentPoint == (self.path[0].x, self.path[0].y)):
-                    self.path.pop(0)
-                
                 if(len(self.path) > 0):
+                    if(self.currentPoint == (self.path[0].x, self.path[0].y)):
+                        self.path.pop(0)
                     return self.move_to_point(self.path[0].x, self.path[0].y)
+                
                 return command_straight
 
 
