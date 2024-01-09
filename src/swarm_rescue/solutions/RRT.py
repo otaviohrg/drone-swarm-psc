@@ -105,16 +105,23 @@ class RRT:
         '''compute path between nodes u and v'''
         lca_uv = self.lca(u, v)
         path_u = [] #we build path from v to lca_uv
+        path_u_points = []
         while(u != lca_uv):
             path_u.append(u)
+            path_u_points.append((u.x, u.y))
             u = u.parentNode
         path_u.append(lca_uv)
+        path_u_points.append((lca_uv.x, lca_uv.y))
         
         path_v = [] #we build path from v to lca_uv
+        path_v_points = []
         while(v != lca_uv):
             path_v.append(v)
+            path_v_points.append((v.x, v.y))
             v = v.parentNode
         path_v = path_v[::-1] #we reverse to get path from lca_uv to v
 
-        path_u.append(path_v)
-        return path_u
+        path_u = path_u + path_v
+        path_u_points = path_u_points + path_v_points
+        
+        return path_u, path_u_points

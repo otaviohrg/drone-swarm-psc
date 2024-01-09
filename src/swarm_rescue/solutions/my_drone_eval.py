@@ -17,6 +17,9 @@ from scipy.spatial import distance
 #to compute best and worst angles in sensor output
 import heapq
 
+#to generate Bezier curve for path back to rescue center
+from solutions.BezierCurve import BezierCurve
+
 class MyDroneEval(DroneAbstract):
 
     def define_message_for_all(self):
@@ -67,7 +70,9 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
+        self.scaling_factor = 30
         self.path = []
+        self.path_current_index = 0
 
         # parameters for controlling steps
         self.counterStraight = 0
@@ -102,16 +107,15 @@ class MyDroneEval(DroneAbstract):
         
     def get_gps_values(self):
         '''Return GPS values if available, else use historic_gps to predict position'''
-        scaling_factor = 60
         if self.gps_is_disabled():
             last_position = self.historic_gps[-1]
             last_angle = self.historic_angle[-1]
             if self._is_turning():
                 return last_position[0], last_position[1]
             else:
-                return last_position[0] + math.cos(last_angle)/scaling_factor, last_position[1] + math.sin(last_angle)/scaling_factor
+                return last_position[0] + math.cos(last_angle)/self.scaling_factor, last_position[1] + math.sin(last_angle)/self.scaling_factor
         else:
-            return self.measured_gps_position()[0]/scaling_factor, self.measured_gps_position()[1]/scaling_factor
+            return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
 
     def update_gps_values(self):
         self.gps_x, self.gps_y = self.get_gps_values()
@@ -284,19 +288,6 @@ class MyDroneEval(DroneAbstract):
         # COMMANDS FOR EACH STATE
         ##########
 
-        command_straight = {"forward": 1.0,
-                            "lateral": 0.0,
-                            "rotation": 0.0,
-                            "grasper": 0}
-        '''command_turn_left = {"forward": 0.0,
-                            "lateral": 0.0,
-                            "rotation": 1.0,
-                            "grasper": 0}
-        command_turn_right = {"forward": 0.0,
-                            "lateral": 0.0,
-                            "rotation": -1.0,
-                            "grasper": 0}'''
-
         collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
 
         self.update_gps_values()
@@ -330,16 +321,18 @@ class MyDroneEval(DroneAbstract):
                 if(not self.builtWayBack): #build path back to rescue center
                     node_u = self.RRT.nodes[self.RRT.getNodeIndex(self.currentPoint)]
                     node_v = self.RRT.nodes[self.RRT.rescueCenterNode]
-                    self.path = self.RRT.build_path(node_u, node_v)
+                    
+                    tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
+                    bezier_curve = BezierCurve(tree_path_points)
+                    self.path = bezier_curve.generate_curve_points( len(tree_path)//6)
+                    self.path_current_index = 0
+                    bezier_curve.output_curve_image()
                     self.builtWayBack = True
 
-                #we move towards path[0] (next point in path)
-                if(len(self.path) > 0):
-                    if(self.currentPoint == (self.path[0].x, self.path[0].y)):
-                        self.path.pop(0)
-                    return self.move_to_point(self.path[0].x, self.path[0].y)
-                
-                return command_straight
+                #we move towards next point in path
+                if(distance.euclidean(self.currentPoint, self.path[self.path_current_index]) < self.scaling_factor and self.path_current_index + 1 < len(self.path)):
+                    self.path_current_index += 1
+                return self.move_to_point(self.path[self.path_current_index][0], self.path[self.path_current_index][1])
 
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
