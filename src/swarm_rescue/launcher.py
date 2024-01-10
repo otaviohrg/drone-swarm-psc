@@ -80,8 +80,10 @@ class Launcher:
 
         self.score_manager = None
 
-        self.data_saver = DataSaver(self.team_info, enabled=False)
-        self.video_capture_enabled = False
+        #self.data_saver = DataSaver(self.team_info, enabled=False)
+        #self.video_capture_enabled = False
+        self.data_saver = DataSaver(self.team_info, enabled=True)
+        self.video_capture_enabled = True
 
     def one_round(self, eval_config: EvalConfig, num_round: int):
         """
@@ -107,6 +109,7 @@ class Launcher:
 
         num_round_str = str(num_round)
         team_number_str = str(self.team_info.team_number).zfill(2)
+
         if self.video_capture_enabled:
             filename_video_capture = (f"{self.data_saver.path}/"
                                       f"/screen_{eval_config.map_name}_{eval_config.zones_name_for_filename}"

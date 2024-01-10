@@ -70,7 +70,7 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
-        self.scaling_factor = 35
+        self.scaling_factor = 55
         self.path = []
         self.path_current_index = 0
 
@@ -82,7 +82,7 @@ class MyDroneEval(DroneAbstract):
         self.isTurningRight = False
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.7,
+        command = {"forward": 0.6,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
@@ -327,8 +327,8 @@ class MyDroneEval(DroneAbstract):
                     
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
-                    self.path = bezier_curve.generate_curve_points( len(tree_path) )
-                    #self.path = path_back #we reverse to get path back to Rescue Center
+                    bezier_path = bezier_curve.generate_curve_points(len(tree_path))
+                    self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
                     self.path_current_index = 0
                     bezier_curve.output_curve_image()
                     self.builtWayBack = True
