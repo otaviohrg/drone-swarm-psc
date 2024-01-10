@@ -80,8 +80,10 @@ class Launcher:
 
         self.score_manager = None
 
-        self.data_saver = DataSaver(self.team_info, enabled=False)
-        self.video_capture_enabled = False
+        #self.data_saver = DataSaver(self.team_info, enabled=False)
+        #self.video_capture_enabled = False
+        self.data_saver = DataSaver(self.team_info, enabled=True)
+        self.video_capture_enabled = True
 
     def one_round(self, eval_config: EvalConfig, num_round: int):
         """
