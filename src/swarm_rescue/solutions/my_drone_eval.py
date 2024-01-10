@@ -70,7 +70,7 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
-        self.scaling_factor = 40
+        self.scaling_factor = 35
         self.path = []
         self.path_current_index = 0
 
@@ -335,7 +335,7 @@ class MyDroneEval(DroneAbstract):
 
                 #we move towards next point in path
                 next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-                while(distance.euclidean(self.currentPoint, next_point_in_path) < 2 and self.path_current_index + 1 < len(self.path)):
+                while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
                     self.path_current_index += 1
                     next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
                 print(f"AT {self.currentPoint} MOVE TO {next_point_in_path} DISTANCE IS {distance.euclidean(self.currentPoint, self.path[self.path_current_index])}")
