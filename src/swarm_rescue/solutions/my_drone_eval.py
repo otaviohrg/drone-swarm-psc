@@ -70,7 +70,7 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
-        self.scaling_factor = 30
+        self.scaling_factor = 40
         self.path = []
         self.path_current_index = 0
 
@@ -82,7 +82,7 @@ class MyDroneEval(DroneAbstract):
         self.isTurningRight = False
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.5,
+        command = {"forward": 0.7,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
@@ -159,17 +159,19 @@ class MyDroneEval(DroneAbstract):
         max_dist = 0
         if size != 0:
 
+            min_dist = min(values)
+            max_dist = max(values)
+
             # collision_angles: angles with smallest distances
             collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(10, values)]
             collision_angles = ray_angles[collision_angle_indexes]
-            min_dist = min(values)
 
+            #far_angle_indexes = [values.index(i) for i in heapq.nlargest(20, values)]
             far_angle_indexes = []
             for i in range(size):
-                if(values[i] >= 120): # far_angles: angles with big enough distances
+                if(values[i] >= 0.7*max_dist): # far_angles: angles with big enough distances
                     far_angle_indexes.append(i)
             far_angles = ray_angles[far_angle_indexes]
-            max_dist = max(values)
 
         if self.lidar_values() is None:
             return False, 0
@@ -180,6 +182,7 @@ class MyDroneEval(DroneAbstract):
         if dist < 100:
             collided = True
 
+        #print(f"DISTS {min_dist} {max_dist}")
         return collided, collision_angles, far_angles, min_dist, max_dist
 
     def can_see_rescue_center(self):
@@ -324,15 +327,19 @@ class MyDroneEval(DroneAbstract):
                     
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
-                    self.path = bezier_curve.generate_curve_points( len(tree_path)//6)
+                    self.path = bezier_curve.generate_curve_points( len(tree_path) )
+                    #self.path = path_back #we reverse to get path back to Rescue Center
                     self.path_current_index = 0
                     bezier_curve.output_curve_image()
                     self.builtWayBack = True
 
                 #we move towards next point in path
-                if(distance.euclidean(self.currentPoint, self.path[self.path_current_index]) < self.scaling_factor and self.path_current_index + 1 < len(self.path)):
+                next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
+                while(distance.euclidean(self.currentPoint, next_point_in_path) < 2 and self.path_current_index + 1 < len(self.path)):
                     self.path_current_index += 1
-                return self.move_to_point(self.path[self.path_current_index][0], self.path[self.path_current_index][1])
+                    next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
+                print(f"AT {self.currentPoint} MOVE TO {next_point_in_path} DISTANCE IS {distance.euclidean(self.currentPoint, self.path[self.path_current_index])}")
+                return self.move_to_point(next_point_in_path[0], next_point_in_path[1])
 
 
         if self.state is self.Activity.SEARCHING_WOUNDED:
