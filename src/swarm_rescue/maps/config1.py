@@ -24,13 +24,23 @@ class Corridor():
         self.rescue=(self.x//2-40, 0)
         self.wounded_pos = []
         n=random.randrange(3,7)
-        self.walls,self.wound=place_corridor((-self.y//2,60),(self.y,self.x//2),10,n,90)
+        
+        #self.walls = [((0,-250),(0,250))]
+        self.walls,self.wound=organize((self.x,self.y))
+        #percolation(self.walls,(0,self.y//4))
+        #percolation(self.walls,(0,-self.y//4))
+        print(self.walls)
         self.gps=((400, 500),(-190, 0))
         self.drones_pos = [(self.x//2-100, 0)]
 
 def place_corridor(center,size,nbmpers,nbmurs,angle):
     x,y=size
     size=(x,y//2)
+    if (angle// 90)%2==1:
+        size=(y,x//2)
+    else:
+        size=(x,y//2)
+
     walls1,wounded1=corridor(size,nbmpers,nbmurs)
     print(walls1)
     walls1=rotate(walls1,(0,0),angle)
@@ -98,6 +108,65 @@ def translateW(walls,delta):
             a.append((x+delta[0],y+delta[1]))
         new_walls.append((a[0],a[1]))
     return new_walls
-def organize(n=random.randrange(1)):
-    if n ==0:
-        pass
+def organize(size,n=random.randrange(1)):
+    mapX=size[0]
+    mapY=size[1]
+
+    x=mapX//2
+    y=mapY//2
+    rwalls,rwound=[],[]
+    walls,wound=place_corridor((-x//2,y//2),(x,y),10,5,0)
+    rwalls+=walls;rwound+=wound
+    walls,wound=place_corridor((-x//2,-y//2),(x,y),10,5,0)
+    rwalls+=walls;rwound+=wound
+    walls,wound=place_corridor((x//2,0),(x,y*2),10,5,90)
+    rwalls+=walls;rwound+=wound
+    percolation(rwalls,(0,y//2))
+    percolation(rwalls,(0,-y//2))
+    return rwalls,rwound
+
+def percolation(walls,point):
+    scalaire=lambda x,y:x[0]*y[0]+x[1]*y[1]
+    x,y=point
+    broken=[]
+    for i,w in enumerate(walls):
+        (a,b),(c,d)=w
+        xw,yw=x-a,y-b
+        c,d=c-a,d-b
+        print("c,d :", c, d)
+        print("point : ",xw,yw)
+        wallsize=(scalaire((c,d),(c,d)))**0.5
+        ux,uy=c/wallsize,d/wallsize
+        print("U : ",ux,uy)
+        prj=scalaire((xw,yw),(ux,uy))
+        projx,projy=prj*ux,prj*uy
+        #print("\n projx , projy",projx,projy," c,d ",c,d)
+        if abs(projx)>abs(c) or abs(projy)>abs(d):
+            #print(" ***** *** far away \n\n\n ***")
+            continue
+        print("proj : ",projx,projy)
+        dist=(xw-projx)**2+(yw-projy)**2
+        print("dist :", dist)
+        if dist<1600:
+            h=(40**2-dist)**0.5
+            breakpt1=(int(projx-h*ux),int(projy-h*uy))
+            breakpt2=(int(projx+h*ux),int(projy+h*uy))
+            print("breakpt1 : ",breakpt1)
+            if scalaire(breakpt1,(ux,uy))>0:
+                print("In Walls : ",((a,b),(a+breakpt1[0],b+breakpt1[1])), "replaces ",walls[i])
+                walls[i]=((a,b),(a+breakpt1[0],b+breakpt1[1]))
+                print("breakpt1  other ref: ",(a+breakpt1[0],b+breakpt1[1]))
+                if scalaire((breakpt2[0]-c,breakpt2[1]-d),(ux,uy))<0:
+                    print("\nlook\n break point,u, then dot",breakpt2,(ux,uy),scalaire(breakpt2,(ux,uy)),"\n")
+                    print("Added to broken : ",((c+a,d+b),(a+breakpt2[0],b+breakpt2[1])))
+                    print( "a,b,c,d :",a,b,c,d)
+                    broken.append(((c+a,d+b),(a+breakpt2[0],b+breakpt2[1])))
+            else:
+                walls[i]=((c+a,d+b),(a+breakpt2[0],b+breakpt2[1]))
+    for w in broken:
+        walls.append(w)
+    print(walls)
+
+
+
+
