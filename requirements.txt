@@ -18,6 +18,7 @@ gym
 arcade==2.6.17
 tripy
 python-statemachine
+scikit-learn
 
 numba
 coverage

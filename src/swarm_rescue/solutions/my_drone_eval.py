@@ -13,6 +13,7 @@ from spg_overlay.utils.utils import normalize_angle, circular_mean, sign
 
 from solutions.RRT import RRT
 from scipy.spatial import distance
+from sklearn.linear_model import LinearRegression
 
 #to compute best and worst angles in sensor output
 import heapq
@@ -25,6 +26,7 @@ class MyDroneEval(DroneAbstract):
     def define_message_for_all(self):
         msg_data = (self.identifier,
                     (self.measured_gps_position(), self.measured_compass_angle()))
+        #Later we can add state specific information to the message ??
         if self.state is self.Activity.SEARCHING_WOUNDED:
             pass
         elif self.state is self.Activity.GRASPING_WOUNDED:
@@ -61,7 +63,10 @@ class MyDroneEval(DroneAbstract):
         self.gps_x = self.measured_gps_position()[0]
         self.gps_y = self.measured_gps_position()[1]
         self.compass_angle = self.measured_compass_angle()
+        self.historic_size = 100
         self.historic_gps = []
+        self.historic_displacements = []
+        self.historic_vectors = []
         self.historic_angle = []
 
         self.RRT = RRT()
@@ -106,28 +111,55 @@ class MyDroneEval(DroneAbstract):
         return command
         
     def get_gps_values(self):
-        '''Return GPS values if available, else use historic_gps to predict position'''
+        '''Return GPS values if available, else use no gps strategy'''
         if self.gps_is_disabled():
-            last_position = self.historic_gps[-1]
-            last_angle = self.historic_angle[-1]
-            if self._is_turning():
-                return last_position[0], last_position[1]
-            else:
-                return last_position[0] + math.cos(last_angle)/self.scaling_factor, last_position[1] + math.sin(last_angle)/self.scaling_factor
+            #train a model using (x = historic_vectors, y = historic_displacement) data, and predict next position
+            last_vector = self.historic_vectors[-1]
+            if(len(self.historic_vectors) > len(self.historic_displacements)):
+                self.historic_vectors.pop(-1)
+
+            regression_vectors = np.array(self.historic_vectors)
+            regression_displacements = np.array(self.historic_displacements)
+
+            reg = LinearRegression().fit(regression_vectors, regression_displacements)
+            predicted_displacement = reg.predict(np.array([last_vector]))
+
+            if(len(self.historic_vectors) == len(self.historic_displacements)):
+                self.historic_vectors.append(last_vector)
+
+            predicted_x = self.historic_gps[-1][0] + predicted_displacement[0, 0]
+            predicted_y = self.historic_gps[-1][1] + predicted_displacement[0, 1]
+            print(f"no gps prediction ({predicted_x}, {predicted_y}) vs.  gps ({self.measured_gps_position()[0]/self.scaling_factor}, {self.measured_gps_position()[1]/self.scaling_factor})")
+
+            #return predicted_x, predicted_y
+
+            return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
+        
         else:
             return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
+
+    def update_displacements(self):
+        if(len(self.historic_gps) < 2):
+            return
+        old_position = self.historic_gps[-2]
+        new_position = self.historic_gps[-1]
+        displacement = (new_position[0] - old_position[0], new_position[1] - old_position[1])
+        self.historic_displacements.append(displacement)
+        if len(self.historic_displacements) > self.historic_size:
+            self.historic_displacements.pop(0)
 
     def update_gps_values(self):
         self.gps_x, self.gps_y = self.get_gps_values()
         self.historic_gps.append((self.gps_x, self.gps_y))
-        if len(self.historic_gps) > 300:
+        self.update_displacements()
+        if len(self.historic_gps) > self.historic_size:
             self.historic_gps.pop(0)
 
     def get_compass_values(self):
         if self.compass_is_disabled():
             last_angle = self.historic_angle[-1]
             if self._is_turning():
-                return last_angle + 0.2
+                return last_angle + 0.2 if self.isTurningLeft else last_angle - 0.2
             else:
                 return last_angle
         else:
@@ -136,7 +168,7 @@ class MyDroneEval(DroneAbstract):
     def update_compass_values(self):
         self.compass_angle = self.get_compass_values()
         self.historic_angle.append(self.compass_angle)
-        if len(self.historic_angle) > 300:
+        if len(self.historic_angle) > self.historic_size:
             self.historic_angle.pop(0)
 
 
@@ -182,7 +214,6 @@ class MyDroneEval(DroneAbstract):
         if dist < 100:
             collided = True
 
-        #print(f"DISTS {min_dist} {max_dist}")
         return collided, collision_angles, far_angles, min_dist, max_dist
 
     def can_see_rescue_center(self):
@@ -257,187 +288,9 @@ class MyDroneEval(DroneAbstract):
             command["rotation"] = random.uniform(0.5, 1)
 
         return found_wounded, found_rescue_center, command
-
-    def control(self):
-        '''Returns command to control drone at each step of the simulation'''
-
-        #############
-        # TRANSITIONS OF THE STATE MACHINE
-        #############
-
-        found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
-
-        if self.state is self.Activity.SEARCHING_WOUNDED and found_wounded:
-            self.state = self.Activity.GRASPING_WOUNDED
-
-        elif self.state is self.Activity.GRASPING_WOUNDED and self.base.grasper.grasped_entities:
-            self.state = self.Activity.SEARCHING_RESCUE_CENTER
-
-        elif self.state is self.Activity.GRASPING_WOUNDED and not found_wounded:
-            self.state = self.Activity.SEARCHING_WOUNDED
-
-        elif self.state is self.Activity.SEARCHING_RESCUE_CENTER and found_rescue_center:
-            self.state = self.Activity.DROPPING_AT_RESCUE_CENTER
-
-        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER and not self.base.grasper.grasped_entities:
-            self.state = self.Activity.SEARCHING_WOUNDED
-
-        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER and not found_rescue_center:
-            self.state = self.Activity.SEARCHING_RESCUE_CENTER
-
-        #print("state: {}, can_grasp: {}, grasped entities: {}".format(self.state.name, self.base.grasper.can_grasp, self.base.grasper.grasped_entities))
-
-        ##########
-        # COMMANDS FOR EACH STATE
-        ##########
-
-        collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
-
-        self.update_gps_values()
-        self.update_compass_values()
-
-        self.previousPoint = self.currentPoint
-        self.currentPoint = (round(self.gps_x), round(self.gps_y))
-
-        #print(f"Let's check {self.currentPoint}")
-        
-        if(not self.RRT.alreadyVisited(self.currentPoint)): #add node to Tree and edge to parent
-            print(f"Added to tree {self.currentPoint} parent {self.previousPoint}")
-            previousNode = self.RRT.getNodeIndex(self.previousPoint)
-            self.RRT.addNode(self.currentPoint, self.RRT.nodes[previousNode])
-            self.RRT.addEdge(self.previousPoint, self.currentPoint)
-        
-        if(self.can_see_rescue_center()):
-            self.RRT.rescueCenterNode = self.RRT.getNodeIndex(self.currentPoint)
-
-        def explore():
-            '''move towards a random point in collision free space'''
-
-            u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
-            return self.move_to_point(u_rand[0], u_rand[1])      
-        
-        def way_back():
-
-            if(self.RRT.rescueCenterNode is None):
-                return explore()
-            else:
-                if(not self.builtWayBack): #build path back to rescue center
-                    node_u = self.RRT.nodes[self.RRT.getNodeIndex(self.currentPoint)]
-                    node_v = self.RRT.nodes[self.RRT.rescueCenterNode]
-                    
-                    tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
-                    bezier_curve = BezierCurve(tree_path_points)
-                    bezier_path = bezier_curve.generate_curve_points(len(tree_path))
-                    self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
-                    self.path_current_index = 0
-                    bezier_curve.output_curve_image()
-                    self.builtWayBack = True
-
-                #we move towards next point in path
-                next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-                while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
-                    self.path_current_index += 1
-                    next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-                print(f"AT {self.currentPoint} MOVE TO {next_point_in_path} DISTANCE IS {distance.euclidean(self.currentPoint, self.path[self.path_current_index])}")
-                return self.move_to_point(next_point_in_path[0], next_point_in_path[1])
-
-
-        if self.state is self.Activity.SEARCHING_WOUNDED:
-            self.builtWayBack = False
-            command = explore()
-            command["grasper"] = 0
-
-        elif self.state is self.Activity.GRASPING_WOUNDED:
-            command = command_semantic
-            command["grasper"] = 1
-
-        elif self.state is self.Activity.SEARCHING_RESCUE_CENTER:
-            command = way_back() 
-            command["grasper"] = 1
-
-        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER:
-            command = command_semantic
-            command["grasper"] = 1
-
-        found, command_comm = self.model_communication_command()
-        command_lidar, collision_lidar = self.model_lidar_command(self.lidar())
-
-        if found:
-            # If there is a nearby drone, we use this information to modify our command
-            alpha = 0.4
-            alpha_rot = 0.75
-
-            if collided:
-                alpha_rot = 0.1
-
-            # The final command  is a combination of 2 commands
-            command["forward"] = \
-                alpha * command_comm["forward"] \
-                + (1 - alpha) * command_lidar["forward"]
-            command["lateral"] = \
-                alpha * command_comm["lateral"] \
-                + (1 - alpha) * command_lidar["lateral"]
-            command["rotation"] = \
-                alpha_rot * command_comm["rotation"] \
-                + (1 - alpha_rot) * command_lidar["rotation"]
-            return command_comm
-
-        return command
-
-    def model_lidar_command(self, the_lidar_sensor):
-        command = {"forward": 1.0,
-                   "lateral": 0.0,
-                   "rotation": 0.0}
-        angular_vel_controller = 1.0
-
-        values = the_lidar_sensor.get_sensor_values()
-
-        if values is None:
-            return command, False
-
-        ray_angles = the_lidar_sensor.ray_angles
-        size = the_lidar_sensor.resolution
-
-        far_angle_raw = 0
-        near_angle_raw = 0
-        min_dist = 1000
-        if size != 0:
-            # far_angle_raw : angle with the longer distance
-            far_angle_raw = ray_angles[np.argmax(values)]
-            min_dist = min(values)
-            # near_angle_raw : angle with the nearest distance
-            near_angle_raw = ray_angles[np.argmin(values)]
-
-        far_angle = far_angle_raw
-        # If far_angle_raw is small then far_angle = 0
-        if abs(far_angle) < 1 / 180 * np.pi:
-            far_angle = 0.0
-
-        near_angle = near_angle_raw
-        far_angle = normalize_angle(far_angle)
-
-        # The drone will turn toward the zone with the more space ahead
-        if size != 0:
-            if far_angle > 0:
-                command["rotation"] = angular_vel_controller
-            elif far_angle == 0:
-                command["rotation"] = 0
-            else:
-                command["rotation"] = -angular_vel_controller
-
-        # If near a wall then 'collision' is True and the drone tries to turn its back to the wall
-        collision = False
-        if size != 0 and min_dist < 50:
-            collision = True
-            if near_angle > 0:
-                command["rotation"] = -angular_vel_controller
-            else:
-                command["rotation"] = angular_vel_controller
-
-        return command, collision
-
-    def model_communication_command(self):
-        ''' we use communication data to generate a command that keeps a certain distance from other drones'''
+    
+    def process_communication_sensor(self):
+        ''' Use drone communication to construct swarm coordination command '''
         found_drone = False
         command_comm = {"forward": 0.0,
                         "lateral": 0.0,
@@ -549,3 +402,131 @@ class MyDroneEval(DroneAbstract):
                 command_comm["lateral"] = 0.5 * (lat1 + lat2)
 
         return found_drone, command_comm
+
+    def control(self):
+        '''Returns command to control drone at each step of the simulation'''
+
+        #############
+        # TRANSITIONS OF THE STATE MACHINE
+        #############
+
+        found_wounded, found_rescue_center, command_semantic = self.process_semantic_sensor()
+
+        if self.state is self.Activity.SEARCHING_WOUNDED and found_wounded:
+            self.state = self.Activity.GRASPING_WOUNDED
+
+        elif self.state is self.Activity.GRASPING_WOUNDED and self.base.grasper.grasped_entities:
+            self.state = self.Activity.SEARCHING_RESCUE_CENTER
+
+        elif self.state is self.Activity.GRASPING_WOUNDED and not found_wounded:
+            self.state = self.Activity.SEARCHING_WOUNDED
+
+        elif self.state is self.Activity.SEARCHING_RESCUE_CENTER and found_rescue_center:
+            self.state = self.Activity.DROPPING_AT_RESCUE_CENTER
+
+        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER and not self.base.grasper.grasped_entities:
+            self.state = self.Activity.SEARCHING_WOUNDED
+
+        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER and not found_rescue_center:
+            self.state = self.Activity.SEARCHING_RESCUE_CENTER
+
+        #print("state: {}, can_grasp: {}, grasped entities: {}".format(self.state.name, self.base.grasper.can_grasp, self.base.grasper.grasped_entities))
+
+        ##########
+        # COMMANDS FOR EACH STATE
+        ##########
+
+        collided, collision_angles, far_angles, min_dist, max_dist = self.process_lidar_sensor()
+
+        self.update_gps_values()
+        self.update_compass_values()
+
+        self.previousPoint = self.currentPoint
+        self.currentPoint = (round(self.gps_x), round(self.gps_y))
+        
+        if(not self.RRT.alreadyVisited(self.currentPoint)): #add node to Tree and edge to parent
+            print(f"Added to tree {self.currentPoint} parent {self.previousPoint}")
+            previousNode = self.RRT.getNodeIndex(self.previousPoint)
+            self.RRT.addNode(self.currentPoint, self.RRT.nodes[previousNode])
+            self.RRT.addEdge(self.previousPoint, self.currentPoint)
+        
+        if(self.can_see_rescue_center()):
+            self.RRT.rescueCenterNode = self.RRT.getNodeIndex(self.currentPoint)
+
+        def explore():
+            '''move towards a random point in collision free space'''
+
+            u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
+            u_rand_norm = distance.euclidean((0,0), u_rand)
+            u_rand_normalized = tuple(val / (u_rand_norm + 1e-9) for val in u_rand)
+
+            self.historic_vectors.append(u_rand_normalized)
+            if len(self.historic_vectors) > self.historic_size:
+                self.historic_vectors.pop(0)
+
+            return self.move_to_point(u_rand[0], u_rand[1])      
+        
+        def way_back():
+
+            if(self.RRT.rescueCenterNode is None):
+                return explore()
+            else:
+                if(not self.builtWayBack): #build path back to rescue center
+                    node_u = self.RRT.nodes[self.RRT.getNodeIndex(self.currentPoint)]
+                    node_v = self.RRT.nodes[self.RRT.rescueCenterNode]
+                    
+                    tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
+                    bezier_curve = BezierCurve(tree_path_points)
+                    bezier_path = bezier_curve.generate_curve_points(len(tree_path))
+                    self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
+                    self.path_current_index = 0
+                    bezier_curve.output_curve_image()
+                    self.builtWayBack = True
+
+                #we move towards next point in path
+                next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
+                while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
+                    self.path_current_index += 1
+                    next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
+
+                u = (next_point_in_path[0] - self.gps_x, next_point_in_path[1] - self.gps_y)
+                u_norm = distance.euclidean((self.gps_x, self.gps_y), next_point_in_path)
+                u_normalized = tuple(val / (u_norm + 1e-9) for val in u)
+
+                self.historic_vectors.append(u_normalized)
+                if len(self.historic_vectors) > self.historic_size:
+                    self.historic_vectors.pop(0)
+
+                print(f"AT {self.currentPoint} MOVE TO {next_point_in_path} DISTANCE IS {distance.euclidean(self.currentPoint, self.path[self.path_current_index])}")
+                return self.move_to_point(next_point_in_path[0], next_point_in_path[1])
+
+
+        if self.state is self.Activity.SEARCHING_WOUNDED:
+            self.builtWayBack = False
+            command = explore()
+            command["grasper"] = 0
+
+        elif self.state is self.Activity.GRASPING_WOUNDED:
+            command = command_semantic
+            command["grasper"] = 1
+
+        elif self.state is self.Activity.SEARCHING_RESCUE_CENTER:
+            command = way_back() 
+            command["grasper"] = 1
+
+        elif self.state is self.Activity.DROPPING_AT_RESCUE_CENTER:
+            command = command_semantic
+            command["grasper"] = 1
+
+
+        found_drone, command_comm = self.process_communication_sensor()
+        alpha = 0.5 #empirical alpha value
+        alpha_rot = 0.2 if collided else 0.7
+
+        if(found_drone and command["grasper"] == 0): #use communication info
+            command["forward"] = alpha * command_comm["forward"] + (1 - alpha) * command["forward"]
+            command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
+            command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
+        
+        return command
+
