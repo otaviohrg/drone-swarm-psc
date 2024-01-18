@@ -5,28 +5,24 @@ import numpy as np
 from typing import Optional
 from enum import Enum
 from copy import deepcopy
+import heapq
 
 from spg_overlay.entities.drone_abstract import DroneAbstract
 from spg_overlay.utils.misc_data import MiscData
 from spg_overlay.entities.drone_distance_sensors import DroneSemanticSensor
 from spg_overlay.utils.utils import normalize_angle, circular_mean, sign
 
-from solutions.RRT import RRT
-from scipy.spatial import distance
-from sklearn.linear_model import LinearRegression
-
-#to compute best and worst angles in sensor output
-import heapq
-
-#to generate Bezier curve for path back to rescue center
 from solutions.BezierCurve import BezierCurve
+from solutions.RRT import RRT
+from solutions.Localization import Localization
+from scipy.spatial import distance
 
 class MyDroneEval(DroneAbstract):
 
     def define_message_for_all(self):
         msg_data = (self.identifier,
                     (self.measured_gps_position(), self.measured_compass_angle()))
-        #Later we can add state specific information to the message ??
+        #Maybe we can add state specific information to the message ??
         if self.state is self.Activity.SEARCHING_WOUNDED:
             pass
         elif self.state is self.Activity.GRASPING_WOUNDED:
@@ -65,9 +61,10 @@ class MyDroneEval(DroneAbstract):
         self.compass_angle = self.measured_compass_angle()
         self.historic_size = 100
         self.historic_gps = []
-        self.historic_displacements = []
-        self.historic_vectors = []
         self.historic_angle = []
+        self.historic_commands = []
+
+        self.localization = Localization()
 
         self.RRT = RRT()
         self.currentPoint = (self.gps_x, self.gps_y)
@@ -87,7 +84,7 @@ class MyDroneEval(DroneAbstract):
         self.isTurningRight = False
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.6,
+        command = {"forward": 0.5,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
@@ -112,48 +109,35 @@ class MyDroneEval(DroneAbstract):
         
     def get_gps_values(self):
         '''Return GPS values if available, else use no gps strategy'''
-        if self.gps_is_disabled():
-            #train a model using (x = historic_vectors, y = historic_displacement) data, and predict next position
-            last_vector = self.historic_vectors[-1]
-            if(len(self.historic_vectors) > len(self.historic_displacements)):
-                self.historic_vectors.pop(-1)
+        if(len(self.historic_gps) > 0 and len(self.historic_commands) > 0):
+            last_command = self.historic_commands[-1]
+            last_position = self.historic_gps[-1]
+            predicted_x, predicted_y = self.localization.predict_position(last_position, last_command)
+            
+            gps_measurement_x = self.measured_gps_position()[0]
+            gps_measurement_y = self.measured_gps_position()[1]
+            print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
 
-            regression_vectors = np.array(self.historic_vectors)
-            regression_displacements = np.array(self.historic_displacements)
+            self.historic_gps.append((predicted_x, predicted_y))
+            if len(self.historic_gps) > self.historic_size:
+                self.historic_gps.pop(0)
 
-            reg = LinearRegression().fit(regression_vectors, regression_displacements)
-            predicted_displacement = reg.predict(np.array([last_vector]))
+            discrete_gps_x = predicted_x/self.scaling_factor
+            discrete_gps_y = predicted_y/self.scaling_factor
 
-            if(len(self.historic_vectors) == len(self.historic_displacements)):
-                self.historic_vectors.append(last_vector)
-
-            predicted_x = self.historic_gps[-1][0] + predicted_displacement[0, 0]
-            predicted_y = self.historic_gps[-1][1] + predicted_displacement[0, 1]
-            print(f"no gps prediction ({predicted_x}, {predicted_y}) vs.  gps ({self.measured_gps_position()[0]/self.scaling_factor}, {self.measured_gps_position()[1]/self.scaling_factor})")
-
-            #return predicted_x, predicted_y
-
-            return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
-        
+            return discrete_gps_x, discrete_gps_y
         else:
-            return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
+            gps_measurement_x = self.measured_gps_position()[0]
+            gps_measurement_y = self.measured_gps_position()[1]
 
-    def update_displacements(self):
-        if(len(self.historic_gps) < 2):
-            return
-        old_position = self.historic_gps[-2]
-        new_position = self.historic_gps[-1]
-        displacement = (new_position[0] - old_position[0], new_position[1] - old_position[1])
-        self.historic_displacements.append(displacement)
-        if len(self.historic_displacements) > self.historic_size:
-            self.historic_displacements.pop(0)
+            self.historic_gps.append((gps_measurement_x, gps_measurement_y))
+            if len(self.historic_gps) > self.historic_size:
+                self.historic_gps.pop(0)
+    
+            return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
 
     def update_gps_values(self):
         self.gps_x, self.gps_y = self.get_gps_values()
-        self.historic_gps.append((self.gps_x, self.gps_y))
-        self.update_displacements()
-        if len(self.historic_gps) > self.historic_size:
-            self.historic_gps.pop(0)
 
     def get_compass_values(self):
         if self.compass_is_disabled():
@@ -445,7 +429,7 @@ class MyDroneEval(DroneAbstract):
         self.currentPoint = (round(self.gps_x), round(self.gps_y))
         
         if(not self.RRT.alreadyVisited(self.currentPoint)): #add node to Tree and edge to parent
-            print(f"Added to tree {self.currentPoint} parent {self.previousPoint}")
+            #print(f"Added to tree {self.currentPoint} parent {self.previousPoint}")
             previousNode = self.RRT.getNodeIndex(self.previousPoint)
             self.RRT.addNode(self.currentPoint, self.RRT.nodes[previousNode])
             self.RRT.addEdge(self.previousPoint, self.currentPoint)
@@ -457,12 +441,6 @@ class MyDroneEval(DroneAbstract):
             '''move towards a random point in collision free space'''
 
             u_rand, angle = self.RRT.steering(self.gps_x, self.gps_y, self.compass_angle, far_angles)
-            u_rand_norm = distance.euclidean((0,0), u_rand)
-            u_rand_normalized = tuple(val / (u_rand_norm + 1e-9) for val in u_rand)
-
-            self.historic_vectors.append(u_rand_normalized)
-            if len(self.historic_vectors) > self.historic_size:
-                self.historic_vectors.pop(0)
 
             return self.move_to_point(u_rand[0], u_rand[1])      
         
@@ -480,7 +458,7 @@ class MyDroneEval(DroneAbstract):
                     bezier_path = bezier_curve.generate_curve_points(len(tree_path))
                     self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
                     self.path_current_index = 0
-                    bezier_curve.output_curve_image()
+                    #bezier_curve.output_curve_image()
                     self.builtWayBack = True
 
                 #we move towards next point in path
@@ -488,14 +466,6 @@ class MyDroneEval(DroneAbstract):
                 while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
                     self.path_current_index += 1
                     next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-
-                u = (next_point_in_path[0] - self.gps_x, next_point_in_path[1] - self.gps_y)
-                u_norm = distance.euclidean((self.gps_x, self.gps_y), next_point_in_path)
-                u_normalized = tuple(val / (u_norm + 1e-9) for val in u)
-
-                self.historic_vectors.append(u_normalized)
-                if len(self.historic_vectors) > self.historic_size:
-                    self.historic_vectors.pop(0)
 
                 print(f"AT {self.currentPoint} MOVE TO {next_point_in_path} DISTANCE IS {distance.euclidean(self.currentPoint, self.path[self.path_current_index])}")
                 return self.move_to_point(next_point_in_path[0], next_point_in_path[1])
@@ -528,5 +498,7 @@ class MyDroneEval(DroneAbstract):
             command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
             command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
         
+        self.historic_commands.append(command)
+
         return command
 
