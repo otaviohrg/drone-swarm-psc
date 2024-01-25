@@ -109,7 +109,7 @@ class MyDroneEval(DroneAbstract):
         
     def get_gps_values(self):
         '''Return GPS values if available, else use no gps strategy'''
-        if(self.gps_is_disabled() and len(self.historic_gps) > 1):
+        if(self.gps_is_disabled()):
             last_command = self.historic_commands[-1]
             last_position = self.historic_gps[-1]
             last_angle = self.historic_angle[-1]
@@ -117,7 +117,7 @@ class MyDroneEval(DroneAbstract):
             
             gps_measurement_x = self.measured_gps_position()[0]
             gps_measurement_y = self.measured_gps_position()[1]
-            print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
+            #print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
 
             self.historic_gps.append((predicted_x, predicted_y))
             if len(self.historic_gps) > self.historic_size:
@@ -492,9 +492,9 @@ class MyDroneEval(DroneAbstract):
 
         found_drone, command_comm = self.process_communication_sensor()
         alpha = 0.5 #empirical alpha value
-        alpha_rot = 0.2 if collided else 0.5
+        alpha_rot = 0.2 if collided else 0.7
 
-        if(found_drone): #use communication info
+        if(found_drone and command["grasper"] == 0): #use communication info
             command["forward"] = alpha * command_comm["forward"] + (1 - alpha) * command["forward"]
             command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
             command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
@@ -506,4 +506,3 @@ class MyDroneEval(DroneAbstract):
         #    print(f"{self.historic_commands[-1]} {self.historic_angle[-1]} {self.historic_gps[-1][0] - self.historic_gps[-2][0]} {self.historic_gps[-1][1] - self.historic_gps[-2][1]}")
 
         return command
-
