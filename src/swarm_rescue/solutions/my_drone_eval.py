@@ -498,12 +498,18 @@ class MyDroneEval(DroneAbstract):
             command["forward"] = alpha * command_comm["forward"] + (1 - alpha) * command["forward"]
             command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
             command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
+
+        #random command to collect data for regression model
+        command["forward"] = random.uniform(0, 1)
+        command["lateral"] = random.uniform(0, 1)
+        command["rotation"] = random.uniform(-1, 1)
+        command["grasper"] = 0
         
         self.historic_commands.append(command)
 
         #Print to collect data for regression model
-        #if(len(self.historic_gps) > 2 and len(self.historic_commands) > 1 and len(self.historic_angle) > 1):
-        #    print(f"{self.historic_commands[-1]} {self.historic_angle[-1]} {self.historic_gps[-1][0] - self.historic_gps[-2][0]} {self.historic_gps[-1][1] - self.historic_gps[-2][1]}")
+        if(len(self.historic_gps) > 2 and len(self.historic_commands) > 1 and len(self.historic_angle) > 1):
+            print(f"{self.historic_commands[-1]} {self.historic_angle[-1]} {self.historic_gps[-1][0] - self.historic_gps[-2][0]} {self.historic_gps[-1][1] - self.historic_gps[-2][1]}")
 
         return command
 
