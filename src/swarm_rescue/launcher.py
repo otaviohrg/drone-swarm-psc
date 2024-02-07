@@ -56,10 +56,10 @@ class Launcher:
         self.eval_plan = EvalPlan()
 
         zones_config: ZonesConfig = (ZoneType.NO_GPS_ZONE)
-        eval_config = EvalConfig(map_type=MyMapMedium01)
+        eval_config = EvalConfig(map_type=GenMap, nb_rounds=2)
         self.eval_plan.add(eval_config=eval_config)
 
-        #eval_config = EvalConfig(map_type=MyMapMedium01,zones_config=zones_config, nb_rounds=2)
+        #eval_config = EvalConfig(map_type=MyMapIntermediate02, nb_rounds=2)
         #self.eval_plan.add(eval_config=eval_config)
 
         zones_config: ZonesConfig = ()
@@ -195,6 +195,8 @@ class Launcher:
                                                rescued_all_time_step,
                                                score_time_step,
                                                round_score)
+                
+        
         self.data_saver.generate_pdf_report()
 
 

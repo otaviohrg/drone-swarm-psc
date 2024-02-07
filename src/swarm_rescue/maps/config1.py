@@ -4,7 +4,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 def show_boxes(box,ax):
-
     (x1, y1), (sizeX1, sizeY1) = box
     rect1 = patches.Rectangle((x1, y1), sizeX1, sizeY1, linewidth=1, edgecolor='r', facecolor='none')
 
@@ -31,19 +30,26 @@ class Corridor():
         #self.border(n,self.y//6)
         #n=random.randrange(1,4)
         #self.border(n,-self.y//6)
-
-        self.rescue=(self.x//2-40, 0)
+        self.walls,self.wound,self.boxes=organize((self.x,self.y))
+        rx=self.x//2-40
+        ry=0
+        self.rescue=(rx, ry)
+        percobox(self.boxes,(rx-20,ry-40))
+        percobox(self.boxes,(rx-20,ry+40))
         n=random.randrange(3,7)
         
         #self.walls = [((0,-250),(0,250))]
-        self.walls,self.wound,self.boxes=organize((self.x,self.y))
         print(self.wound)
         self.wounded_pos=self.wound
         #percolation(self.walls,(0,self.y//4))
         #percolation(self.walls,(0,-self.y//4))
         print(self.walls)
         self.gps=((400, 500),(-190, 0))
-        self.drones_pos = [(self.x//2-100, 0)]
+        print("\n\n\nlook at Me!!!!!\n\n\n")
+        self.drones_pos = []
+        for i in range(3):
+            self.drones_pos.append(freespace((0,-self.y//4),(self.x//4,self.y//4),self.boxes))
+        print("Position :",self.drones_pos)
 
 def openspace(size,nbmpers,nbblocs):
     boxes= []
@@ -73,7 +79,7 @@ def openspace(size,nbmpers,nbblocs):
 
     wounded=[]
     for i in range(nbmpers):
-        xp,yp=random.randrange(-x//2,x//2), random.randrange(-y,y)
+        xp,yp=freespace((0,0),(x,2*y),boxes)
         for b in boxes:
             if boxintersect(b,((xp,yp),(5,5))):
                 break
@@ -117,6 +123,10 @@ def place_openspace(center,size,nbmpers,nbmurs,angle):
 def boxintersect(b1,b2):
     (x1, y1), (sizeX1, sizeY1) = b1
     (x2, y2), (sizeX2, sizeY2) = b2
+    #print(x1 + sizeX1 +40,x2)
+    #print(x2 + sizeX2 +40,x1)
+    #print(y1 + sizeY1 +40,y2)
+    #print(y2 + sizeY2 +40,y1)
     if x1 + sizeX1 +40<= x2 or x2 + sizeX2+40 <= x1 or y1 + sizeY1+40 <= y2 or y2 + sizeY2 +40<= y1:
         return False
     else:
@@ -211,14 +221,17 @@ def organize(size,n=random.randrange(1)):
     x=mapX//2
     y=mapY//2
     rwalls,rwound,rboxes=[],[],[]
-    walls,wound,boxes=place_openspace((-x//2,y//2),(x,y),10,5,0)
+    walls,wound,boxes=place_openspace((-x//2,y//2),(x,y),10,3,0)
     rwalls+=walls;rwound+=wound;rboxes+=boxes
-    walls,wound,boxes=place_openspace((-x//2,-y//2),(x,y),3,5,0)
+    walls,wound,boxes=place_openspace((-x//2,-y//2),(x,y),14,5,0)
     rwalls+=walls;rwound+=wound;rboxes+=boxes
-    walls,wound,boxes=place_openspace((x//2,0),(x,y*2),5,5,90)
+    walls,wound,boxes=place_openspace((x//2,0),(x,y*2),28,5,90)
     rwalls+=walls;rwound+=wound;rboxes+=boxes
+    rboxes.append(((x-60,0),(x,y)))
     percolation(rwalls,(0,y//2))
+    percobox(rboxes,(0,y//2))
     percolation(rwalls,(0,-y//2))
+    percobox(rboxes,(0,-y//2))
     print(rwound)
 
     return rwalls,rwound,rboxes
@@ -267,5 +280,28 @@ def percolation(walls,point):
     #print(walls)
 
 
-
-
+def percobox(boxes,point):
+    for i,b in enumerate(boxes):
+        print("Box in percolation :", b)
+        print("Percolation point:", point)
+        if boxintersect(b,(point,(0,0))):
+            if point[0]-40-b[0][0]>0:
+                boxes[i]=((b[0][0],b[0][1]),(point[0]-40-b[0][0],b[1][1]))
+                print("width changed")
+            elif point[1]-40-b[1][0]>0:
+                boxes[i]=((b[0][0],b[0][1]),(b[1][0],point[1]-40-b[1][0]))
+                print("height changed")
+            else:
+                del boxes[i]
+                print("box destroyed")
+def freespace(center,size,boxes):
+    cx,cy=center
+    sx,sy=size
+    while 1:
+        x=random.randrange(cx-sx//2,cx+sx//2)
+        y=random.randrange(cy-sy//2,cy+sy//2)
+        for b in boxes:
+            if boxintersect(b,((x,y),(0,0))):
+                continue
+        break
+    return (x,y)
