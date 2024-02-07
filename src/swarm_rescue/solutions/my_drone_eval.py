@@ -115,9 +115,9 @@ class MyDroneEval(DroneAbstract):
             last_angle = self.historic_angle[-1]
             predicted_x, predicted_y = self.localization.predict_position(last_position, last_command, last_angle)
             
-            gps_measurement_x = self.measured_gps_position()[0]
-            gps_measurement_y = self.measured_gps_position()[1]
-            print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
+            #gps_measurement_x = self.measured_gps_position()[0]
+            #gps_measurement_y = self.measured_gps_position()[1]
+            #print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
 
             self.historic_gps.append((predicted_x, predicted_y))
             if len(self.historic_gps) > self.historic_size:
@@ -142,9 +142,12 @@ class MyDroneEval(DroneAbstract):
 
     def get_compass_values(self):
         if self.compass_is_disabled():
+            last_command = self.historic_commands[-1]
             last_angle = self.historic_angle[-1]
-            if self._is_turning():
-                return last_angle + 0.2 if self.isTurningLeft else last_angle - 0.2
+            if last_command["rotation"] > 0:
+                return last_angle + 0.2
+            elif last_command["rotation"] < 0:
+                return last_angle - 0.2
             else:
                 return last_angle
         else:
@@ -457,14 +460,15 @@ class MyDroneEval(DroneAbstract):
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
                     bezier_path = bezier_curve.generate_curve_points(len(tree_path))
-                    self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
+                    #self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
+                    self.path = bezier_path
                     self.path_current_index = 0
-                    #bezier_curve.output_curve_image()
+                    bezier_curve.output_curve_image()
                     self.builtWayBack = True
 
                 #we move towards next point in path
                 next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-                while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
+                while(distance.euclidean(self.currentPoint, next_point_in_path) < 0.5 and self.path_current_index + 1 < len(self.path)):
                     self.path_current_index += 1
                     next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
 

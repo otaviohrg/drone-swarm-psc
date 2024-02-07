@@ -15,6 +15,8 @@ from maps.map_intermediate_02 import MyMapIntermediate02
 from maps.map_final_2023 import MyMapFinal
 from maps.map_medium_01 import MyMapMedium01
 from maps.map_medium_02 import MyMapMedium02
+from maps.map_intermediate_01_2023 import MyMapIntermediate01_2023
+from maps.map_intermediate_02_2023 import MyMapIntermediate02_2023
 
 from solutions.my_drone_eval import MyDroneEval
 
@@ -54,6 +56,13 @@ class Launcher:
         self.team_info = TeamInfo()
         self.eval_plan = EvalPlan()
 
+        #zones_config: ZonesConfig = (ZoneType.NO_COM_ZONE, ZoneType.NO_GPS_ZONE, ZoneType.KILL_ZONE)
+        #eval_config = EvalConfig(map_type=MyMapIntermediate01_2023, zones_config=zones_config, nb_rounds=1, config_weight=1)
+        #self.eval_plan.add(eval_config=eval_config)
+        
+        eval_config = EvalConfig(map_type=MyMapIntermediate01_2023, nb_rounds=1)
+        self.eval_plan.add(eval_config=eval_config)
+
         eval_config = EvalConfig(map_type=MyMapIntermediate01, nb_rounds=2)
         self.eval_plan.add(eval_config=eval_config)
 
@@ -82,10 +91,10 @@ class Launcher:
 
         #MODIFY HERE TO RECORD TEST
 
-        self.data_saver = DataSaver(self.team_info, enabled=False)
-        self.video_capture_enabled = False
-        #self.data_saver = DataSaver(self.team_info, enabled=True)
-        #self.video_capture_enabled = True
+        #self.data_saver = DataSaver(self.team_info, enabled=False)
+        #self.video_capture_enabled = False
+        self.data_saver = DataSaver(self.team_info, enabled=True)
+        self.video_capture_enabled = True
 
     def one_round(self, eval_config: EvalConfig, num_round: int):
         """
