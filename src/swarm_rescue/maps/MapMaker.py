@@ -13,7 +13,7 @@ from spg_overlay.gui_map.closed_playground import ClosedPlayground
 from spg_overlay.gui_map.map_abstract import MapAbstract
 from spg_overlay.reporting.evaluation import ZonesConfig
 from spg_overlay.utils.misc_data import MiscData
-from spg_overlay.entities.normal_wall import NormalWall
+from spg_overlay.entities.normal_wall import NormalWall,NormalBox
 
 from .config1 import Config1 as Cf, Corridor as Cr
 
@@ -36,6 +36,7 @@ class GenMap(MapAbstract):
         self._rescue_center = RescueCenter(size=(80, 130))
         self._rescue_center_pos = (config.rescue, 0)
 
+        print("GPS :",config.gps)
         self._no_gps_zone = NoGpsZone(size=config.gps[0])
         self._no_gps_zone_pos = (config.gps[1], 0)
 
@@ -52,6 +53,7 @@ class GenMap(MapAbstract):
             self._drones_pos.append((dronepos,orient))
         self._drones: List[DroneAbstract] = []
         self.walls=config.walls
+        self.boxes = config.boxes
         print(self.walls)
 
 
@@ -71,7 +73,12 @@ class GenMap(MapAbstract):
                       pos_end=pos[1])
             playground.add(wall, wall.wall_coordinates)
             print(wall.wall_coordinates)
-        
+        for pos in self.boxes:
+            print("box of corner :",pos[0],"and size : ",pos[1])
+            box= NormalBox(up_left_point=pos[0],
+                    width=pos[1][0], height=pos[1][1])
+            playground.add(box, box.wall_coordinates)
+            
         self._explored_map.initialize_walls(playground)
 
         # DISABLER ZONES

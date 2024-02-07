@@ -55,16 +55,17 @@ class Launcher:
         self.team_info = TeamInfo()
         self.eval_plan = EvalPlan()
 
-        eval_config = EvalConfig(map_type=GenMap, nb_rounds=2)
+        zones_config: ZonesConfig = (ZoneType.NO_GPS_ZONE)
+        eval_config = EvalConfig(map_type=MyMapMedium01)
         self.eval_plan.add(eval_config=eval_config)
 
-        eval_config = EvalConfig(map_type=MyMapIntermediate02)
-        self.eval_plan.add(eval_config=eval_config)
+        #eval_config = EvalConfig(map_type=MyMapMedium01,zones_config=zones_config, nb_rounds=2)
+        #self.eval_plan.add(eval_config=eval_config)
 
         zones_config: ZonesConfig = ()
         eval_config = EvalConfig(map_type=MyMapMedium01, zones_config=zones_config, nb_rounds=1, config_weight=1)
         self.eval_plan.add(eval_config=eval_config)
-
+        
         zones_config: ZonesConfig = (ZoneType.NO_COM_ZONE, ZoneType.NO_GPS_ZONE, ZoneType.KILL_ZONE)
         eval_config = EvalConfig(map_type=MyMapMedium01, zones_config=zones_config, nb_rounds=1, config_weight=1)
         self.eval_plan.add(eval_config=eval_config)
