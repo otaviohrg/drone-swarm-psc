@@ -72,7 +72,7 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
-        self.scaling_factor = 55
+        self.scaling_factor = 30
         self.path = []
         self.path_current_index = 0
 
@@ -84,7 +84,7 @@ class MyDroneEval(DroneAbstract):
         self.isTurningRight = False
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.5,
+        command = {"forward": 0.7,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
@@ -115,8 +115,8 @@ class MyDroneEval(DroneAbstract):
             last_angle = self.historic_angle[-1]
             predicted_x, predicted_y = self.localization.predict_position(last_position, last_command, last_angle)
             
-            gps_measurement_x = self.measured_gps_position()[0]
-            gps_measurement_y = self.measured_gps_position()[1]
+            #gps_measurement_x = self.measured_gps_position()[0]
+            #gps_measurement_y = self.measured_gps_position()[1]
             #print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
 
             self.historic_gps.append((predicted_x, predicted_y))
@@ -457,7 +457,7 @@ class MyDroneEval(DroneAbstract):
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
                     bezier_path = bezier_curve.generate_curve_points(len(tree_path))
-                    self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
+                    self.path = np.add(np.add(tree_path_points, bezier_path), bezier_path)/3
                     self.path_current_index = 0
                     #bezier_curve.output_curve_image()
                     self.builtWayBack = True
@@ -493,11 +493,6 @@ class MyDroneEval(DroneAbstract):
         found_drone, command_comm = self.process_communication_sensor()
         alpha = 0.5 #empirical alpha value
         alpha_rot = 0.2 if collided else 0.7
-
-        if(found_drone and command["grasper"] == 0): #use communication info
-            command["forward"] = alpha * command_comm["forward"] + (1 - alpha) * command["forward"]
-            command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
-            command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
         
         self.historic_commands.append(command)
 

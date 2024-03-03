@@ -72,7 +72,7 @@ class MyDroneEval(DroneAbstract):
         self.previousPoint = None
 
         self.builtWayBack = False
-        self.scaling_factor = 55
+        self.scaling_factor = 30
         self.path = []
         self.path_current_index = 0
 
@@ -84,7 +84,7 @@ class MyDroneEval(DroneAbstract):
         self.isTurningRight = False
 
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.5,
+        command = {"forward": 0.7,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
@@ -109,7 +109,7 @@ class MyDroneEval(DroneAbstract):
         
     def get_gps_values(self):
         '''Return GPS values if available, else use no gps strategy'''
-        if(self.gps_is_disabled() and len(self.historic_gps) > 1):
+        if(self.gps_is_disabled()):
             last_command = self.historic_commands[-1]
             last_position = self.historic_gps[-1]
             last_angle = self.historic_angle[-1]
@@ -142,12 +142,9 @@ class MyDroneEval(DroneAbstract):
 
     def get_compass_values(self):
         if self.compass_is_disabled():
-            last_command = self.historic_commands[-1]
             last_angle = self.historic_angle[-1]
-            if last_command["rotation"] > 0:
-                return last_angle + 0.2
-            elif last_command["rotation"] < 0:
-                return last_angle - 0.2
+            if self._is_turning():
+                return last_angle + 0.2 if self.isTurningLeft else last_angle - 0.2
             else:
                 return last_angle
         else:
@@ -460,15 +457,14 @@ class MyDroneEval(DroneAbstract):
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
                     bezier_path = bezier_curve.generate_curve_points(len(tree_path))
-                    #self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
-                    self.path = bezier_path
+                    self.path = np.add(np.add(tree_path_points, bezier_path), bezier_path)/3
                     self.path_current_index = 0
-                    bezier_curve.output_curve_image()
+                    #bezier_curve.output_curve_image()
                     self.builtWayBack = True
 
                 #we move towards next point in path
                 next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
-                while(distance.euclidean(self.currentPoint, next_point_in_path) < 0.5 and self.path_current_index + 1 < len(self.path)):
+                while(distance.euclidean(self.currentPoint, next_point_in_path) < 1.5 and self.path_current_index + 1 < len(self.path)):
                     self.path_current_index += 1
                     next_point_in_path = (self.path[self.path_current_index][0], self.path[self.path_current_index][1])
 
@@ -496,24 +492,12 @@ class MyDroneEval(DroneAbstract):
 
         found_drone, command_comm = self.process_communication_sensor()
         alpha = 0.5 #empirical alpha value
-        alpha_rot = 0.2 if collided else 0.5
-
-        if(found_drone): #use communication info
-            command["forward"] = alpha * command_comm["forward"] + (1 - alpha) * command["forward"]
-            command["lateral"] = alpha * command_comm["lateral"] + (1 - alpha) * command["lateral"]
-            command["rotation"] = alpha_rot * command_comm["forward"] + (1 - alpha_rot) * command["forward"]
-
-        #random command to collect data for regression model
-        command["forward"] = random.uniform(0, 1)
-        command["lateral"] = random.uniform(0, 1)
-        command["rotation"] = random.uniform(-1, 1)
-        command["grasper"] = 0
+        alpha_rot = 0.2 if collided else 0.7
         
         self.historic_commands.append(command)
 
         #Print to collect data for regression model
-        if(len(self.historic_gps) > 2 and len(self.historic_commands) > 1 and len(self.historic_angle) > 1):
-            print(f"{self.historic_commands[-1]} {self.historic_angle[-1]} {self.historic_gps[-1][0] - self.historic_gps[-2][0]} {self.historic_gps[-1][1] - self.historic_gps[-2][1]}")
+        #if(len(self.historic_gps) > 2 and len(self.historic_commands) > 1 and len(self.historic_angle) > 1):
+        #    print(f"{self.historic_commands[-1]} {self.historic_angle[-1]} {self.historic_gps[-1][0] - self.historic_gps[-2][0]} {self.historic_gps[-1][1] - self.historic_gps[-2][1]}")
 
         return command
-
