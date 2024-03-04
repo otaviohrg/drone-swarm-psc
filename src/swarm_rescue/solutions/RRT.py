@@ -86,7 +86,14 @@ class RRT:
             return u_rand[0], u_rand[1]
         else: #backtracking, let's return to parent
             node_index = self.getNodeIndex((x,y))
-            parent_node = self.nodes[node_index].parentNode
+            if(node_index is None):#treat corner cases
+                return x + random.uniform(0, 2), y + random.uniform(0, 2)
+            parent_node = self.nodes[node_index]
+            if(parent_node is None):
+                return x + random.uniform(0, 2), y + random.uniform(0, 2)
+            parent_node = parent_node.parent_node
+            if(parent_node is None):
+                return x + random.uniform(0, 2), y + random.uniform(0, 2)
             return parent_node.x, parent_node.y
 
     def lca(self, u, v):

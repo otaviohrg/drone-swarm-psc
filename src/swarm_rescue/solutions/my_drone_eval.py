@@ -76,18 +76,16 @@ class MyDroneEval(DroneAbstract):
         self.path = []
         self.path_current_index = 0
 
-        # parameters for controlling steps
-        self.counterStraight = 0
-        self.angleStopTurning = 0
-        self.distStopStraight = 0
-        self.isTurningLeft = False
-        self.isTurningRight = False
-
     def move_to_point(self, destx, desty):#assumes gps/compass are available
-        command = {"forward": 0.7,
+        command = {"forward": 0.65,
                     "lateral": 0.0,
                     "rotation": 0.0,
                     "grasper": 0.0}
+        candidates = [-1.5, -1, -0.5, 0, 0.5, 1, 1.5]
+
+        if(self.gps_is_disabled()):
+            command["forward"] = 1
+            candidates = [-1, -0.5, 0, 0.5, 1]
         #CHOOSE BEST DIRECTION 3 possibilities: rotation=1, rotation=0 or rotation=-1
 
         #rotation = 1 => 0,2 rad per step => takes 32 steps to do the whole circle at rotation = 1
@@ -95,7 +93,6 @@ class MyDroneEval(DroneAbstract):
         rotation_speed = 32/rotation_discretization_parameter
 
         dest = (destx, desty)
-        candidates = [-1, 0, 1]
         criteria = []
         for i in candidates:
             direction_angle = self.compass_angle + 2*i*math.pi/rotation_discretization_parameter
@@ -114,51 +111,38 @@ class MyDroneEval(DroneAbstract):
             last_position = self.historic_gps[-1]
             last_angle = self.historic_angle[-1]
             predicted_x, predicted_y = self.localization.predict_position(last_position, last_command, last_angle)
-            
-            #gps_measurement_x = self.measured_gps_position()[0]
-            #gps_measurement_y = self.measured_gps_position()[1]
-            #print(f"PREDICTION ({predicted_x:.2f}, {predicted_y:.2f})  REAL ({gps_measurement_x:.2f}, {gps_measurement_y:.2f})")
-
-            self.historic_gps.append((predicted_x, predicted_y))
-            if len(self.historic_gps) > self.historic_size:
-                self.historic_gps.pop(0)
 
             discrete_gps_x = predicted_x/self.scaling_factor
             discrete_gps_y = predicted_y/self.scaling_factor
 
             return discrete_gps_x, discrete_gps_y
         else:
-            gps_measurement_x = self.measured_gps_position()[0]
-            gps_measurement_y = self.measured_gps_position()[1]
-
-            self.historic_gps.append((gps_measurement_x, gps_measurement_y))
-            if len(self.historic_gps) > self.historic_size:
-                self.historic_gps.pop(0)
-    
             return self.measured_gps_position()[0]/self.scaling_factor, self.measured_gps_position()[1]/self.scaling_factor
 
     def update_gps_values(self):
         self.gps_x, self.gps_y = self.get_gps_values()
 
+        self.historic_gps.append((self.gps_x, self.gps_y))
+        if len(self.historic_gps) > self.historic_size:
+            self.historic_gps.pop(0)
+
     def get_compass_values(self):
         if self.compass_is_disabled():
+            last_command = self.historic_commands[-1]
             last_angle = self.historic_angle[-1]
-            if self._is_turning():
-                return last_angle + 0.2 if self.isTurningLeft else last_angle - 0.2
-            else:
-                return last_angle
+
+            new_angle = self.localization.predict_angle(last_command, last_angle)
+            #print(f"HERE {new_angle}")
+            return new_angle
         else:
             return self.measured_compass_angle()
 
     def update_compass_values(self):
         self.compass_angle = self.get_compass_values()
+
         self.historic_angle.append(self.compass_angle)
         if len(self.historic_angle) > self.historic_size:
             self.historic_angle.pop(0)
-
-
-    def _is_turning(self):
-        return self.isTurningLeft or self.isTurningRight
 
     def process_lidar_sensor(self):
         """
@@ -186,7 +170,7 @@ class MyDroneEval(DroneAbstract):
             #far_angle_indexes = [values.index(i) for i in heapq.nlargest(20, values)]
             far_angle_indexes = []
             for i in range(size):
-                if(values[i] >= 0.7*max_dist): # far_angles: angles with big enough distances
+                if(values[i] >= 0.8*max_dist or values[i] >= 130): # far_angles: angles with big enough distances
                     far_angle_indexes.append(i)
             far_angles = ray_angles[far_angle_indexes]
 
@@ -447,7 +431,7 @@ class MyDroneEval(DroneAbstract):
         
         def way_back():
 
-            if(self.RRT.rescueCenterNode is None):
+            if((self.RRT.rescueCenterNode is None) or collided):
                 return explore()
             else:
                 if(not self.builtWayBack): #build path back to rescue center
@@ -457,7 +441,8 @@ class MyDroneEval(DroneAbstract):
                     tree_path, tree_path_points = self.RRT.build_path(node_u, node_v)
                     bezier_curve = BezierCurve(tree_path_points)
                     bezier_path = bezier_curve.generate_curve_points(len(tree_path))
-                    self.path = np.add(np.add(tree_path_points, bezier_path), bezier_path)/3
+                    #self.path = np.add(np.add(tree_path_points, tree_path_points), bezier_path)/3
+                    self.path = bezier_path
                     self.path_current_index = 0
                     #bezier_curve.output_curve_image()
                     self.builtWayBack = True
@@ -490,9 +475,9 @@ class MyDroneEval(DroneAbstract):
             command["grasper"] = 1
 
 
-        found_drone, command_comm = self.process_communication_sensor()
-        alpha = 0.5 #empirical alpha value
-        alpha_rot = 0.2 if collided else 0.7
+        #found_drone, command_comm = self.process_communication_sensor()
+        #alpha = 0.5 #empirical alpha value
+        #alpha_rot = 0.2 if collided else 0.7
         
         self.historic_commands.append(command)
 

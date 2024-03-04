@@ -1,6 +1,7 @@
 import numpy as np
 import re
 import os
+import random
 import tensorflow as tf
 from sklearn.ensemble import GradientBoostingRegressor
 
@@ -21,17 +22,12 @@ class Localization:
         self.lite_model_input_index = self.lite_model.get_input_details()[0]["index"]
         self.lite_model_output_index = self.lite_model.get_output_details()[0]["index"]
 
-    def extract_values(self, line):
-        # Regular expression to process training data
-        pattern = r"{'forward': ([\d.-]+), 'lateral': ([\d.-]+), 'rotation': ([\d.-]+), 'grasper': ([\d.-]+)} ([\d.-]+) ([\d.-]+) ([\d.-]+)"
-
-        match = re.match(pattern, line)
-        if match:
-            forward, lateral, rotation, grasper, angle, x, y = map(float, match.groups())
-            return forward, lateral, rotation, grasper, angle, x, y
-        else:
-            # Handle the case where the line doesn't match the expected pattern
-            return None  
+        #same thing for compass model
+        file_path2 = os.path.join(script_directory, 'compass_model.tflite')
+        self.lite_model2 = tf.lite.Interpreter(file_path2)
+        self.lite_model2.allocate_tensors()
+        self.lite_model_input_index2 = self.lite_model2.get_input_details()[0]["index"]
+        self.lite_model_output_index2 = self.lite_model2.get_output_details()[0]["index"]
         
     def predict_position(self, current_position, command, angle):
         # Convert command to tensorflow tensor
@@ -49,3 +45,13 @@ class Localization:
         # Add the predicted y-coordinate
         predicted_y = current_position[1] + predicted_displacement_y
         return predicted_x, predicted_y
+
+    def predict_angle(self, command, angle):
+        # Convert command to tensorflow tensor
+        x_tensor = tf.convert_to_tensor([[command['rotation'], angle]], dtype=np.float32)
+
+        # Get prediction from model
+        self.lite_model2.set_tensor(self.lite_model_input_index2, x_tensor)
+        self.lite_model2.invoke()
+        prediction =  self.lite_model2.get_tensor(self.lite_model_output_index2)[0][0]
+        return prediction
