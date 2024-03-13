@@ -25,5 +25,5 @@ To elucidate details of the proposed solution, a project report is provided cove
 
 ## Video simulations
 
-Videos of the simulations performed can be accessed on \href{https://youtube.com/playlist?list=PLtjhlzG74dXQtCeJVn7zF_i-BjA6-myyC&si=7HfPvuB6ZMK2P3f_}{Youtube}.
+Videos of the simulations performed can be accessed on [Youtube](https://youtube.com/playlist?list=PLtjhlzG74dXQtCeJVn7zF_i-BjA6-myyC&si=7HfPvuB6ZMK2P3f_).
 
