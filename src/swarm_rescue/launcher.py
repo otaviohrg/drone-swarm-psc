@@ -18,7 +18,6 @@ from maps.map_medium_02 import MyMapMedium02
 
 from solutions.my_drone_eval import MyDroneEval
 
-
 class MyDrone(MyDroneEval):
     pass
 
