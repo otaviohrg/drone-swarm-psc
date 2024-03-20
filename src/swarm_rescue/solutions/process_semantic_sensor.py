@@ -3,6 +3,8 @@ from spg_overlay.utils.utils import normalize_angle, circular_mean, sign
 
 import random
 
+from solutions.state_machine import Activity
+
 def process_semantic_sensor(drone):
         """
         According to his state in the state machine, the Drone will move towards a wound person or the rescue center
@@ -16,8 +18,8 @@ def process_semantic_sensor(drone):
         best_angle = 0
 
         found_wounded = False
-        if (drone.state is drone.Activity.SEARCHING_WOUNDED
-            or drone.state is drone.Activity.GRASPING_WOUNDED) \
+        if (drone.state is Activity.SEARCHING_WOUNDED
+            or drone.state is Activity.GRASPING_WOUNDED) \
                 and detection_semantic is not None:
             scores = []
             for data in detection_semantic:
@@ -38,8 +40,8 @@ def process_semantic_sensor(drone):
         found_rescue_center = False
         is_near = False
         angles_list = []
-        if (drone.state is drone.Activity.SEARCHING_RESCUE_CENTER
-            or drone.state is drone.Activity.DROPPING_AT_RESCUE_CENTER) \
+        if (drone.state is Activity.SEARCHING_RESCUE_CENTER
+            or drone.state is Activity.DROPPING_AT_RESCUE_CENTER) \
                 and detection_semantic:
             for data in detection_semantic:
                 if data.entity_type == DroneSemanticSensor.TypeEntity.RESCUE_CENTER:
