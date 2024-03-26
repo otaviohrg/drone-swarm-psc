@@ -28,3 +28,6 @@ def update_state(activity, found_wounded, found_rescue_center, grasped_entities)
 
     elif activity is Activity.DROPPING_AT_RESCUE_CENTER and not found_rescue_center:
         return Activity.SEARCHING_RESCUE_CENTER
+    
+    else:
+        return Activity.GRASPING_WOUNDED
