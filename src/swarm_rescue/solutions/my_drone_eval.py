@@ -12,6 +12,7 @@ from solutions.process_semantic_sensor import process_semantic_sensor
 from solutions.process_gps import get_gps_values
 from solutions.kalman_filter import KalmanFilter
 from solutions.state_machine import Activity, update_state
+from solutions.mqtt_utilities import MyDroneMQTT
 
 class MyDroneEval(DroneAbstract):
 
@@ -28,6 +29,9 @@ class MyDroneEval(DroneAbstract):
         # The state is initialized to searching wounded person
         self.state = Activity.SEARCHING_WOUNDED
 
+        #Connect to MQTT broker
+        self.mqtt = MyDroneMQTT()
+
         # Initialize Kalman filter parameters
         initial_state = np.array([0,0,0,0])  # x, y, vx, vy (drone is initially at rest)
         initial_covariance = np.eye(4)  # Identity matrix
@@ -37,7 +41,9 @@ class MyDroneEval(DroneAbstract):
         self.kalman_filter = KalmanFilter(initial_state, initial_covariance, process_noise, measurement_noise)
 
     def define_message_for_all(self):
-        pass
+        x = self.kalman_filter.state[0]
+        y = self.kalman_filter.state[1]
+        self.mqtt.publish(f"{self.mqtt.client_id} {x} {y}")
 
     def get_dynamic_state(self):
         x, y, vx, vy = self.kalman_filter.state.flatten()
@@ -77,6 +83,7 @@ class MyDroneEval(DroneAbstract):
 
         self.kalman_filter.drone_update(x_measured, y_measured, effects)
 
-        print(f"x = {x} \t y = {y} \t vx = {vx} \t vy = {vy} \t fwr = {command['forward']} \t lat = {command['lateral']}")
+        #print(f"x = {x} \t y = {y} \t vx = {vx} \t vy = {vy} \t fwr = {command['forward']} \t lat = {command['lateral']}")
+        #self.send_message(x, y)
 
         return command
