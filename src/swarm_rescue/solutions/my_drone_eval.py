@@ -34,7 +34,7 @@ class MyDroneEval(DroneAbstract):
         self.mqtt = MyDroneMQTT()
 
         # Initialize Kalman filter parameters
-        initial_state = np.array([0, 0, 0, 0])  # vx=vy=0 (drone is initially at rest)
+        initial_state = np.array([0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
         initial_covariance = np.eye(4)  # Identity matrix
         process_noise = np.eye(4) * 0.01  # Process noise covariance matrix
         measurement_noise = np.eye(2) * 0.1  # Measurement noise covariance matrix
