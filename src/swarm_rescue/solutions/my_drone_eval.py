@@ -8,12 +8,12 @@ from spg_overlay.entities.drone_abstract import DroneAbstract
 from spg_overlay.utils.misc_data import MiscData
 from spg_overlay.utils.utils import normalize_angle
 
-from solutions.process_semantic_sensor import process_semantic_sensor
-from solutions.process_lidar_sensor import process_lidar_sensor, command_lidar
-from solutions.process_gps import get_gps_values
-from solutions.kalman_filter import KalmanFilter
+from solutions.sensors.process_semantic_sensor import process_semantic_sensor
+from solutions.sensors.process_lidar_sensor import process_lidar_sensor, command_lidar
+from solutions.sensors.process_gps import get_gps_values
+from solutions.utilities.mqtt_utilities import MyDroneMQTT
+from solutions.kalman_filter.kalman_filter import KalmanFilter
 from solutions.state_machine import Activity, update_state
-from solutions.mqtt_utilities import MyDroneMQTT
 
 class MyDroneEval(DroneAbstract):
 
@@ -33,23 +33,28 @@ class MyDroneEval(DroneAbstract):
         #Initialise connection to MQTT broker
         self.mqtt = MyDroneMQTT()
 
-        # Initialize Kalman filter parameters
-        initial_state = np.array([0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
-        initial_covariance = np.eye(4)  # Identity matrix
-        process_noise = np.eye(4) * 0.01  # Process noise covariance matrix
-        measurement_noise = np.eye(2) * 0.1  # Measurement noise covariance matrix
-
-        self.kalman_filter = KalmanFilter(initial_state, initial_covariance, process_noise, measurement_noise)
+        self.kalman_filter = None
 
     def define_message_for_all(self):
-        x = self.kalman_filter.state[0]
-        y = self.kalman_filter.state[1]
-        self.mqtt.publish(f"{self.mqtt.client_id} {x} {y}")
+        pass
+        #x = self.kalman_filter.state[0]
+        #y = self.kalman_filter.state[1]
     
     def control(self):
 
+        if(self.kalman_filter is None):
+            # Initialize Kalman filter parameters
+            initial_gps = self.gps_values()
+            initial_compass = self.compass_values()
+            initial_state = np.array([initial_gps[0], initial_gps[1], initial_compass, 0, 0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
+            initial_covariance = np.eye(8)  # Identity matrix
+            measurement_noise = np.eye(5)*0.01
+
+            self.kalman_filter = KalmanFilter(initial_state, initial_covariance, measurement_noise, self)
+
+
         #Retrieve dynamics information (x,y,vx,vy) from Kalman filter
-        x, y, vx, vy = self.kalman_filter.state.flatten()
+        x, y, theta, vx, vy, vtheta, ax, ay  = self.kalman_filter.state.flatten()
         
         found_wounded, found_rescue_center, command_semantic = process_semantic_sensor(self)
 
@@ -72,8 +77,7 @@ class MyDroneEval(DroneAbstract):
             command = command_semantic
             command["grasper"] = 1
 
-        effects = np.array([command["forward"], command["lateral"]])
-        self.kalman_filter.drone_update(x, y, effects)
+        self.kalman_filter.drone_update(command)
 
         x_measured, y_measured = get_gps_values(self)
         print(f"GPS ({x_measured}, {y_measured}) KALMAN ({x}, {y})")

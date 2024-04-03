@@ -19,7 +19,9 @@ class MyDroneMQTT():
         self.client_id = f'drone-{random.randint(0, 1000)}'
         self.client = self.connect_mqtt()
         self.client.loop_start()
-        time.sleep(1)
+
+        time.sleep(0.5) #wait for connection
+
         if self.client.is_connected():
             print(f"{self.client_id} connected :)")
         else:
@@ -44,20 +46,18 @@ class MyDroneMQTT():
         #print("Disconnected with result code: %s", rc)
         reconnect_count, reconnect_delay = 0, FIRST_RECONNECT_DELAY
         while reconnect_count < MAX_RECONNECT_COUNT:
-            #print("Reconnecting in %d seconds...", reconnect_delay)
             time.sleep(reconnect_delay)
 
             try:
                 client.reconnect()
-                #print("Reconnected successfully!")
-                return
+                return #reconnected succesfully
             except Exception as err:
-                print("%s. Reconnect failed. Retrying...", err)
+                print("%s. Reconnect failed. Retrying...", err) #this is very rare!
 
             reconnect_delay *= RECONNECT_RATE
             reconnect_delay = min(reconnect_delay, MAX_RECONNECT_DELAY)
             reconnect_count += 1
-        #print("Reconnect failed after %s attempts. Exiting...", reconnect_count)
+        print("Reconnect failed!")
 
     def on_message(self, client, userdata, msg):
         pass
@@ -67,11 +67,8 @@ class MyDroneMQTT():
         num_tries = 5
         while num_tries > 0:
             result = self.client.publish(TOPIC, message)
-            # result: [0, 1]
             status = result[0]
-            if status == 0:
-                #print(f"Sent `{message}` to topic `{TOPIC}`")
+            if status == 0: #message was sent succesfully
                 num_tries = 0
-            else:
-                #print(f"Failed to send message to topic {TOPIC}")
+            else: #we must try again!
                 num_tries -= 1
