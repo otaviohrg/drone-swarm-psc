@@ -3,8 +3,8 @@ import numpy as np
 class KalmanFilter:
     def __init__(self, initial_state, initial_covariance, measurement_noise, drone):
         dt = 1  # Time step between measurements
-        r = 0.9
-        a = 2
+        r = 100
+        a = 20
         self.drone = drone
         self.measurement_noise = measurement_noise
         self.A = np.array([[1, 0, 0, dt, 0, 0, 0, 0],

@@ -12,8 +12,8 @@ from solutions.sensors.process_semantic_sensor import process_semantic_sensor
 from solutions.sensors.process_lidar_sensor import process_lidar_sensor, command_lidar
 from solutions.sensors.process_gps import get_gps_values
 from solutions.utilities.mqtt_utilities import MyDroneMQTT
-from solutions.kalman_filter.kalman_filter import KalmanFilter
 from solutions.state_machine import Activity, update_state
+from solutions.utilities.odometer_prediction import Odometer_prediction
 
 class MyDroneEval(DroneAbstract):
 
@@ -33,53 +33,46 @@ class MyDroneEval(DroneAbstract):
         #Initialise connection to MQTT broker
         self.mqtt = MyDroneMQTT()
 
-        self.kalman_filter = None
+        self.odometer_prediction = Odometer_prediction()
 
     def define_message_for_all(self):
         pass
-        #x = self.kalman_filter.state[0]
-        #y = self.kalman_filter.state[1]
     
     def control(self):
 
-        if(self.kalman_filter is None):
-            # Initialize Kalman filter parameters
-            initial_gps = self.gps_values()
-            initial_compass = self.compass_values()
-            initial_state = np.array([initial_gps[0], initial_gps[1], initial_compass, 0, 0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
-            initial_covariance = np.eye(8)  # Identity matrix
-            measurement_noise = np.eye(5)*0.01
+        if(self.odometer_prediction.initial_x is None):
+            self.odometer_prediction.initial_x, self.odometer_prediction.initial_y = get_gps_values(self)
 
-            self.kalman_filter = KalmanFilter(initial_state, initial_covariance, measurement_noise, self)
-
-
-        #Retrieve dynamics information (x,y,vx,vy) from Kalman filter
-        x, y, theta, vx, vy, vtheta, ax, ay  = self.kalman_filter.state.flatten()
+        command_placeholder = {"forward": 0.5, "lateral": 0.5, "rotation": 0.5}
         
         found_wounded, found_rescue_center, command_semantic = process_semantic_sensor(self)
 
         collided, collision_angles, far_angles, min_dist, max_dist = process_lidar_sensor(self)
 
+        (dist , alpha , theta) = self.odometer_values()
+        self.odometer_prediction.update(dist , alpha , theta)
+
+        x = self.odometer_prediction.initial_x + self.odometer_prediction.integ_bruit_dx()
+        y = self.odometer_prediction.initial_y + self.odometer_prediction.integ_bruit_dy()
+
         self.state = update_state(self.state, found_wounded, found_rescue_center, self.base.grasper.grasped_entities)
 
         if self.state is Activity.SEARCHING_WOUNDED:
-            command = command_lidar(far_angles, vx, vy)
+            command = command_placeholder
 
         elif self.state is Activity.GRASPING_WOUNDED:
             command = command_semantic
             command["grasper"] = 1
 
         elif self.state is Activity.SEARCHING_RESCUE_CENTER:
-            command = command_lidar(far_angles, vx, vy)
+            command = command_placeholder
             command["grasper"] = 1
 
         elif self.state is Activity.DROPPING_AT_RESCUE_CENTER:
             command = command_semantic
             command["grasper"] = 1
 
-        self.kalman_filter.drone_update(command)
-
         x_measured, y_measured = get_gps_values(self)
-        print(f"GPS ({x_measured}, {y_measured}) KALMAN ({x}, {y})")
+        print(f"GPS ({x_measured}, {y_measured}) SPLINE ({x}, {y})")
 
         return command
