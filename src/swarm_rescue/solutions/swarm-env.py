@@ -6,7 +6,8 @@ from gymnasium.core import ActType
 #Math tools
 import numpy as np
 
-
+#Sensor tools
+from sensors.process_lidar_sensor import process_lidar_sensor
 
 #SPG tools
 from spg.playground import Playground
@@ -75,6 +76,19 @@ class SwarmEnv(gym.Env):
             Take a step in the map
             return the observation, reward, done, info
         """
+        #Depending on the state of the drone, we will take different actions
+
+        state = self.map.agents[0].state
+        if state is 
+        #Lidar sensor
+        collided, collision_angles, far_angles, min_dist, max_dist = process_lidar_sensor(self.map.agents[0])
+        if collided:
+            self.map.agents[0].reward = -1
+            self.map.agents[0].done = True
+        else:
+            self.map.agents[0].reward = 1
+            self.map.agents[0].done = False
+
         self.map.step()
         #To complete
 
