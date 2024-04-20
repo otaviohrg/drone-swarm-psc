@@ -16,7 +16,7 @@ class MyDroneLocalization:
         self.interpreter.allocate_tensors()
 
         # Used for discretization (set empirically)
-        self.scaling_factor = 15
+        self.scaling_factor = 45
         self.historic_size = 40
         self.historic_commands = np.array([])
         self.historic_gps = np.array([])
@@ -60,7 +60,7 @@ class MyDroneLocalization:
 
                 return discrete_gps_x, discrete_gps_y
             else:
-                return drone.measured_gps_position()[0]/self.scaling_factor, drone.measured_gps_position()[1]/self.scaling_factor
+                return round(drone.measured_gps_position()[0]/self.scaling_factor), round(drone.measured_gps_position()[1]/self.scaling_factor)
 
     def get_compass_values(self, drone):
         if drone.compass_is_disabled():

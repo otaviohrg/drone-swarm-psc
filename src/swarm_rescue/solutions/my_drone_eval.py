@@ -1,8 +1,10 @@
 from typing import Optional
 from enum import Enum
 
+import math
 import random
 import numpy as np
+from scipy.spatial import distance
 
 from spg_overlay.entities.drone_abstract import DroneAbstract
 from spg_overlay.utils.misc_data import MiscData
@@ -40,6 +42,17 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         # Initialise model for localization
         self.localization = MyDroneLocalization()
 
+        self.counterStraight = 0
+        self.angleStopTurning = random.uniform(-math.pi, math.pi)
+        self.distStopStraight = random.uniform(10, 50)
+        self.isTurning = False
+
+        self.initial_flag = True
+        self.initial_x = None
+        self.initial_y = None
+        self.builtReturnPath = False
+        self.returnPath = []
+
     def define_message_for_all(self):
         if(len(self.graph.latest_edges) > 50): #share edges
             self.mqtt.publish(np.array2string(self.graph.latest_edges))
@@ -54,6 +67,16 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         self.graph.add_edges(edges) # add edges to the graph
     
     def control(self):
+
+        command_straight = {"forward": 1.0,
+                            "lateral": 0.0,
+                            "rotation": 0.0,
+                            "grasper": 0}
+
+        command_turn = {"forward": 0.0,
+                        "lateral": 0.0,
+                        "rotation": 1.0,
+                        "grasper": 0}
         
         found_wounded, found_rescue_center, command_semantic = process_semantic_sensor(self)
 
@@ -62,20 +85,51 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         x, y = self.localization.get_gps_values(self)
         angle = self.localization.get_compass_values(self)
 
+        if self.initial_flag:
+            self.initial_x = x
+            self.initial_y = y
+            self.initial_flag = False
+
         self.state = update_state(self.state, found_wounded, found_rescue_center, self.base.grasper.grasped_entities)
 
         if self.state is Activity.SEARCHING_WOUNDED:
-            command = 
+            self.builtReturnPath = False
+            self.counterStraight += 1
+
+            if collided and not self.isTurning and self.counterStraight > self.distStopStraight:
+                x_target, y_target = self.graph.rrt_steering(x, y, angle, far_angles)
+                self.isTurning = True
+                self.angleStopTurning = math.atan2( y_target-y, x_target-x )
+                self.distStopStraight = distance.euclidean((x,y), (x_target, y_target))
+
+            diff_angle = normalize_angle(self.angleStopTurning - angle)
+            if self.isTurning and abs(diff_angle) < 0.2:
+                self.isTurning = False
+                self.counterStraight = 0
+                
+
+            if self.isTurning:
+                return command_turn
+            else:
+                return command_straight
 
         elif self.state is Activity.GRASPING_WOUNDED:
+            self.builtReturnPath = False
             command = command_semantic
             command["grasper"] = 1
 
         elif self.state is Activity.SEARCHING_RESCUE_CENTER:
-            command = 
+            if self.builtReturnPath is False:
+                self.returnPath = self.graph.shortest_path((x,y), (self.initial_x, self.initial_y))
+                self.builtReturnPath = True
+                self.graph.plot_graph()
+            while distance.euclidean([x,y], self.returnPath[0]) < 1.5 and len(self.returnPath) > 1:
+                self.returnPath.pop(0)
+            command = move_to_point(self.returnPath[0][0], self.returnPath[0][1], angle, x, y)
             command["grasper"] = 1
 
         elif self.state is Activity.DROPPING_AT_RESCUE_CENTER:
+            self.builtReturnPath = False
             command = command_semantic
             command["grasper"] = 1
 
