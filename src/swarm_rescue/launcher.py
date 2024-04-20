@@ -53,8 +53,8 @@ class Launcher:
         self.team_info = TeamInfo()
         self.eval_plan = EvalPlan()
 
-        eval_config = EvalConfig(map_type=MyMapIntermediate01, nb_rounds=2)
-        self.eval_plan.add(eval_config=eval_config)
+        #eval_config = EvalConfig(map_type=MyMapIntermediate01, nb_rounds=2)
+        #self.eval_plan.add(eval_config=eval_config)
 
         eval_config = EvalConfig(map_type=MyMapIntermediate02)
         self.eval_plan.add(eval_config=eval_config)
@@ -80,7 +80,9 @@ class Launcher:
         self.score_manager = None
 
         self.data_saver = DataSaver(self.team_info, enabled=False)
-        self.video_capture_enabled = False
+        #self.video_capture_enabled = False
+
+        self.video_capture_enabled = True
 
     def one_round(self, eval_config: EvalConfig, num_round: int):
         """

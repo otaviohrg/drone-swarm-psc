@@ -9,10 +9,13 @@ class Activity(Enum):
     SEARCHING_RESCUE_CENTER = 3
     DROPPING_AT_RESCUE_CENTER = 4
 
-def update_state(activity, found_wounded, found_rescue_center, grasped_entities):
+def update_state(activity, found_wounded, found_rescue_center, grasped_entities, voteResult):
 
-    if activity is Activity.SEARCHING_WOUNDED and found_wounded:
+    if activity is Activity.SEARCHING_WOUNDED and found_wounded and voteResult:
         return Activity.GRASPING_WOUNDED
+    
+    elif activity is Activity.GRASPING_WOUNDED and (not voteResult):
+        return Activity.SEARCHING_WOUNDED
 
     elif activity is Activity.GRASPING_WOUNDED and grasped_entities:
         return Activity.SEARCHING_RESCUE_CENTER

@@ -5,6 +5,9 @@ import heapq
 import numpy as np
 import random
 
+
+cnt = 0
+
 class MyDroneGraph:
     '''
     Drone creates a map using a graph data structure (implemented with adjacency list)
@@ -39,20 +42,32 @@ class MyDroneGraph:
         '''
         u = self.coordinates_to_node.get((ux, uy))
         v = self.coordinates_to_node.get((vx, vy))
-        if u is None: #we check if node exists in the graph
+
+        # Add vertices if they do not exist
+        if u is None:
             u = self.add_vertex(ux, uy)
         if v is None:
             v = self.add_vertex(vx, vy)
+        
+        # Check if the edge already exists
+        if u is not None and v is not None:
+            if v in self.adj_list[u]:
+                # Edge already exists, do not add it again
+                return
+        
+        # Add edge to the adjacency list
         self.adj_list[u][v] = weight
         self.adj_list[v][u] = weight
-        if(must_communicate):
-            self.latest_edges = np.append(self.latest_edges, (ux,uy,vx,vy,weight))
+        
+        # Add edge to latest_edges list if necessary
+        if must_communicate:
+            self.latest_edges = np.append(self.latest_edges, (ux, uy, vx, vy, weight))
 
     
     def add_edges(self, edges):
         for edge in edges:
             ux, uy, vx, vy, weight = edge
-            self.add_edge(ux, uy, vx, vy, weight)
+            self.add_edge(ux, uy, vx, vy, weight, False)
     
     def heuristic(self, u, v):
         return abs(u[0] - v[0]) + abs(u[1] - v[1])
@@ -60,6 +75,7 @@ class MyDroneGraph:
     def shortest_path(self, start_coords, end_coords):
         #we specify start and end coordinates to build path
         #we pick nodes that are the closest possible to these coordinates => flexibility and precision
+
         start_node = min(self.node_to_coordinates.keys(), key=lambda node: ((self.node_to_coordinates[node][0] - start_coords[0]) ** 2 + (self.node_to_coordinates[node][1] - start_coords[1]) ** 2))
         end_node = min(self.node_to_coordinates.keys(), key=lambda node: ((self.node_to_coordinates[node][0] - end_coords[0]) ** 2 + (self.node_to_coordinates[node][1] - end_coords[1]) ** 2))
 
@@ -82,8 +98,12 @@ class MyDroneGraph:
                         parent[neighbor] = node
         return []  # if path does not exist, return an empty list
 
-
     def plot_graph(self):
+        global cnt
+        cnt += 1
+        if(cnt < 300):
+            pass
+        cnt = 0
         filename = f'graph-{random.randint(0, 1000)}.png' #unique random filename
         fig, ax = plt.subplots()
         for u, neighbors in self.adj_list.items():

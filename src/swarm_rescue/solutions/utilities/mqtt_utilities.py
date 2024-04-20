@@ -65,10 +65,10 @@ class MyDroneMQTT():
         '''
         raise NotImplementedError("Drone class will implement this function")
 
-    def publish(self, message):
+    def publish(self, message, my_topic):
         num_tries = 5
         while num_tries > 0:
-            result = self.client.publish(TOPIC, message)
+            result = self.client.publish(my_topic, message)
             status = result[0]
             if status == 0: #message was sent succesfully
                 num_tries = 0
