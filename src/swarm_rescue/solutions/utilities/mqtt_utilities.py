@@ -16,7 +16,7 @@ MAX_RECONNECT_DELAY = 60
 class MyDroneMQTT():
 
     def __init__(self):
-        self.client_id = f'drone-{random.randint(0, 1000)}'
+        self.client_id = f'{random.randint(0, 1000)}' #use random id for each drone
         self.client = self.connect_mqtt()
         self.client.loop_start()
 
@@ -60,8 +60,10 @@ class MyDroneMQTT():
         print("Reconnect failed!")
 
     def on_message(self, client, userdata, msg):
-        pass
-        #print(f'Received `{msg.payload.decode()}` from `{msg.topic}` topic')
+        '''
+        We implement on_message in the drone class because we want access to graph data structure
+        '''
+        raise NotImplementedError("Drone class will implement this function")
 
     def publish(self, message):
         num_tries = 5

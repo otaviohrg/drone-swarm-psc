@@ -21,3 +21,6 @@ coverage
 gprof2dot
 paho-mqtt
 invoke
+joblib
+tensorflow
+keras

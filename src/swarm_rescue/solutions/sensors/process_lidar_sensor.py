@@ -37,29 +37,3 @@ def process_lidar_sensor(drone):
             collided = True
 
         return collided, collision_angles, far_angles, min_dist, max_dist
-
-def command_lidar(far_angles, vx, vy):
-    """
-    PROBLEM WE WANT TO SOLVE HERE:
-    We have a velocity (vx, vy).  Say we decide we want to move in the direction of an angle q.
-    What acceleration (ax, ay) should we adopt to get there ?
-    """
-    chosen_angle = random.choice(far_angles)
-
-    chosen_direction = (np.cos(chosen_angle), np.sin(chosen_angle))
-
-    v = np.sqrt(vx**2 + vy**2)
-
-    dvx = chosen_direction[0] * v - vx
-    dvy = chosen_direction[1] * v - vy
-
-    max_dv = max(abs(dvx), abs(dvy)) + 1e-9
-
-    ax = dvx/max_dv
-    ay = dvy/max_dv
-
-    command = {"forward": ax,
-                "lateral": ay,
-                "rotation": 0.0}
-
-    return command
