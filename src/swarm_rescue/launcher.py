@@ -15,9 +15,13 @@ from maps.map_intermediate_02 import MyMapIntermediate02
 from maps.map_final_2023 import MyMapFinal
 from maps.map_medium_01 import MyMapMedium01
 from maps.map_medium_02 import MyMapMedium02
+from maps.map_simple import MyMapSimple
 
 from solutions.my_drone_eval import MyDroneEval
 
+
+from solutions.sb3.drone_env import DroneEnv
+from stable_baselines3 import PPO, A2C, DQN
 
 class MyDrone(MyDroneEval):
     pass
@@ -54,13 +58,22 @@ class Launcher:
         self.team_info = TeamInfo()
         self.eval_plan = EvalPlan()
 
-        eval_config = EvalConfig(map_type=MyMapIntermediate01, nb_rounds=2)
+        """ eval_config = EvalConfig(map_type=MyMapIntermediate01, nb_rounds=2)
+        self.eval_plan.add(eval_config=eval_config) """
+
+        eval_config = EvalConfig(map_type=MyMapSimple)
         self.eval_plan.add(eval_config=eval_config)
 
-        eval_config = EvalConfig(map_type=MyMapIntermediate02)
-        self.eval_plan.add(eval_config=eval_config)
+        """ env = DroneEnv()
+        env.check_environment() """
 
-        zones_config: ZonesConfig = ()
+
+
+        """ # Train the agent
+        model = A2C("MultiInputPolicy", env, verbose=1).learn(5000)
+        model.save("a2c_saved")   """
+
+        """ zones_config: ZonesConfig = ()
         eval_config = EvalConfig(map_type=MyMapMedium01, zones_config=zones_config, nb_rounds=1, config_weight=1)
         self.eval_plan.add(eval_config=eval_config)
 
@@ -70,7 +83,7 @@ class Launcher:
 
         zones_config: ZonesConfig = (ZoneType.NO_COM_ZONE, ZoneType.NO_GPS_ZONE, ZoneType.KILL_ZONE)
         eval_config = EvalConfig(map_type=MyMapMedium02, zones_config=zones_config, nb_rounds=1, config_weight=1)
-        self.eval_plan.add(eval_config=eval_config)
+        self.eval_plan.add(eval_config=eval_config) """
 
         self.number_drones = None
         self.time_step_limit = None
@@ -105,6 +118,12 @@ class Launcher:
 
         playground = my_map.construct_playground(drone_type=MyDrone)
 
+        """ obs, mess, rew, _done = playground.step()
+        print(f"Initial observation: {obs}")
+        print(f"Initial message: {mess}")
+        print(f"Initial reward: {rew}")
+        print(f"Initial done: {_done}")
+ """
         num_round_str = str(num_round)
         team_number_str = str(self.team_info.team_number).zfill(2)
         if self.video_capture_enabled:
