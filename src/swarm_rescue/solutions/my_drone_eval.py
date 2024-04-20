@@ -68,7 +68,7 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
     def vote(self):
         self.voteResult = True
         self.voteInProgress = True
-        self.voteRefreshCountdown = 30
+        self.voteRefreshCountdown = 7
         self.publish(self.myVote, "VOTE")
 
     def on_message(self, client, userdata, msg):
