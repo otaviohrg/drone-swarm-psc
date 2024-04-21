@@ -131,8 +131,8 @@ class MyDroneGraph:
         # Iterate over candidate directions and choose the direction with the fewest points
         for direction in far_angles:
             # Calculate the new position in the current direction
-            x_candidate = x + math.cos(direction + angle)
-            y_candidate = y + math.sin(direction + angle)
+            x_candidate = x + 5*math.cos(direction + angle)
+            y_candidate = y + 5*math.sin(direction + angle)
 
             # Count the number of points within a certain radius (e.g., 10 units) around the new position
             num_points = sum(1 for x_p, y_p in random_points if math.sqrt((x_p - x_candidate)**2 + (y_p - y_candidate)**2) <= 10)
@@ -142,7 +142,7 @@ class MyDroneGraph:
                 min_points = num_points
                 best_direction = direction
 
-        x_chosen = x + math.cos(best_direction + angle)
-        y_chosen = y + math.sin(best_direction + angle)
+        x_chosen = x + 5*math.cos(best_direction + angle)
+        y_chosen = y + 5*math.sin(best_direction + angle)
 
         return x_chosen, y_chosen
