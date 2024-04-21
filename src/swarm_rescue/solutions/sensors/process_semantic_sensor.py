@@ -2,6 +2,9 @@ from spg_overlay.entities.drone_distance_sensors import DroneSemanticSensor
 from spg_overlay.utils.utils import normalize_angle, circular_mean, sign
 
 import random
+import numpy as np
+
+from solutions.state_machine import Activity
 
 def process_semantic_sensor(drone):
         """
@@ -16,8 +19,9 @@ def process_semantic_sensor(drone):
         best_angle = 0
 
         found_wounded = False
-        if (drone.state is drone.Activity.SEARCHING_WOUNDED
-            or drone.state is drone.Activity.GRASPING_WOUNDED) \
+        nearby_drone = False
+        if (drone.state is Activity.SEARCHING_WOUNDED
+            or drone.state is Activity.GRASPING_WOUNDED) \
                 and detection_semantic is not None:
             scores = []
             for data in detection_semantic:
@@ -27,6 +31,12 @@ def process_semantic_sensor(drone):
                     v = (data.angle * data.angle) + \
                         (data.distance * data.distance / 10 ** 5)
                     scores.append((v, data.angle, data.distance))
+
+                if data.entity_type == DroneSemanticSensor.TypeEntity.DRONE:
+                    nearby_drone = (data.distance < 20)
+
+            if(found_wounded and nearby_drone and drone.state):
+                drone.vote()
 
             # Select the best one among wounded persons detected
             best_score = 10000
@@ -38,8 +48,8 @@ def process_semantic_sensor(drone):
         found_rescue_center = False
         is_near = False
         angles_list = []
-        if (drone.state is drone.Activity.SEARCHING_RESCUE_CENTER
-            or drone.state is drone.Activity.DROPPING_AT_RESCUE_CENTER) \
+        if (drone.state is Activity.SEARCHING_RESCUE_CENTER
+            or drone.state is Activity.DROPPING_AT_RESCUE_CENTER) \
                 and detection_semantic:
             for data in detection_semantic:
                 if data.entity_type == DroneSemanticSensor.TypeEntity.RESCUE_CENTER:

@@ -1,8 +1,3 @@
-"""
-This program can be launched directly.
-To move the drone, you have to click on the map, then use the arrows on the keyboard
-"""
-
 import os
 import sys
 from typing import List, Type
@@ -19,17 +14,57 @@ from spg_overlay.gui_map.closed_playground import ClosedPlayground
 from spg_overlay.gui_map.gui_sr import GuiSR
 from spg_overlay.gui_map.map_abstract import MapAbstract
 from spg_overlay.utils.misc_data import MiscData
+from examples.kalman_filter import KalmanFilter
 
+import numpy as np
+import sys
+
+gui = None
 
 class MyDroneKeyboard(DroneAbstract):
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.kalman_filter = None
+    
+    def on_key_event(self, key):
+        print("HERE")
+        #Retrieve dynamics information (x,y,vx,vy) from Kalman filter
+        x, y, theta, vx, vy, vtheta, ax, ay  = self.kalman_filter.state.flatten()
+        x_measured, y_measured = self.measured_gps_position()[0], self.measured_gps_position()[1]
+
+        if key in ['up', 'down', 'left', 'right']:
+            print(f"GPS ({x_measured}, {y_measured}) KALMAN ({x}, {y})")
 
     def define_message_for_all(self):
         """
         Here, we don't need communication...
         """
-        pass
+        if(self.kalman_filter is None):
+            # Initialize Kalman filter parameters
+            initial_gps = self.gps_values()
+            initial_compass = self.compass_values()
+            initial_state = np.array([initial_gps[0], initial_gps[1], initial_compass, 0, 0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
+            initial_covariance = np.eye(8)  # Identity matrix
+            measurement_noise = np.eye(5)*0.01
+
+            sys.stdin = open(0)
+            self.kalman_filter = KalmanFilter(initial_state, initial_covariance, measurement_noise, self)
+
+        global gui
+        if(gui is None):
+            pass
+
+        command = {"forward": 0.0,
+                   "lateral": 0.0,
+                   "rotation": 0.0,
+                   "grasper": 0}
+        for i in range(gui._number_drones):
+            command = gui._drones[i].control()
+            if gui._use_keyboard and i == 0:
+                command = gui._keyboardController.control()
+
+        self.kalman_filter.drone_update(command)
 
     def control(self):
         command = {"forward": 0.0,
@@ -57,6 +92,7 @@ class MyMapKeyboard(MapAbstract):
         self._number_drones = 1
         self._drones_pos = [((0, 0), 0)]
         self._drones = []
+
 
     def construct_playground(self, drone_type: Type[DroneAbstract]):
         playground = ClosedPlayground(size=self._size_area)
@@ -105,10 +141,11 @@ def main():
     print_keyboard_man()
     my_map = MyMapKeyboard()
 
-    playground = my_map.construct_playground(drone_type=MyDroneKeyboard)
+    playground = my_map.construct_playground(MyDroneKeyboard)
 
     # draw_lidar_rays : enable the visualization of the lidar rays
     # draw_semantic_rays : enable the visualization of the semantic rays
+    global gui
     gui = GuiSR(playground=playground,
                 the_map=my_map,
                 draw_lidar_rays=True,
