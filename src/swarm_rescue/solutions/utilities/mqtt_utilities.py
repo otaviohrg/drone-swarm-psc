@@ -71,6 +71,7 @@ class MyDroneMQTT():
             result = self.client.publish(my_topic, message)
             status = result[0]
             if status == 0: #message was sent succesfully
+                #print("A MESSAGE HAS BEEN SENT!!")
                 num_tries = 0
             else: #we must try again!
                 num_tries -= 1

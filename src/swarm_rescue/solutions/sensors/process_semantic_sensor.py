@@ -77,4 +77,4 @@ def process_semantic_sensor(drone):
             command["forward"] = 0
             command["rotation"] = random.uniform(0.5, 1)
 
-        return found_wounded, found_rescue_center, command
+        return nearby_drone, found_wounded, found_rescue_center, command

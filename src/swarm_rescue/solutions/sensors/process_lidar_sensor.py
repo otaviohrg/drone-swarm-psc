@@ -22,11 +22,11 @@ def process_lidar_sensor(drone):
             max_dist = max(values)
 
             # collision_angles: angles with smallest distances
-            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(10, values)]
+            collision_angle_indexes = [values.index(i) for i in heapq.nsmallest(15, values)]
             collision_angles = ray_angles[collision_angle_indexes]
 
             # far_angles: angles with largest distances
-            far_angle_indexes = [values.index(i) for i in heapq.nlargest(10, values)]
+            far_angle_indexes = [values.index(i) for i in heapq.nlargest(15, values)]
             far_angles = ray_angles[far_angle_indexes]
 
         if drone.lidar_values() is None:

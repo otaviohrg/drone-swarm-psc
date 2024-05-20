@@ -20,7 +20,7 @@ class MyDroneLocalization:
         self.lite_model_output_index = self.lite_model.get_output_details()[0]["index"]
 
         # Used for discretization (set empirically)
-        self.scaling_factor = 80
+        self.scaling_factor = 35
         self.historic_size = 40
         self.last_command = {}
         self.historic_gps = np.empty((0, 2), dtype=float)

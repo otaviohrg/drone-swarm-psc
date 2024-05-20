@@ -17,6 +17,7 @@ from solutions.decision.random_walks import ballistic, levy_flight
 from solutions.utilities.mqtt_utilities import MyDroneMQTT
 from solutions.utilities.graph_utilities import MyDroneGraph
 from solutions.localization.localization import MyDroneLocalization
+from solutions.localization.kalman_filter import KalmanFilter
 from solutions.state_machine import Activity, update_state
 
 class MyDroneEval(DroneAbstract, MyDroneMQTT):
@@ -42,6 +43,16 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         # Initialise model for localization
         self.localization = MyDroneLocalization()
 
+        #Initialise Kalman filter parameters
+        initial_gps = self.gps_values()
+        initial_compass = self.compass_values()
+        initial_state = np.array([initial_gps[0], initial_gps[1], initial_compass, 0, 0, 0, 0, 0])  # x=y=vx=vy=0 (drone is initially at rest)
+        initial_covariance = np.eye(8)  # Identity matrix
+        noisenogps = np.eye(5)*0.01
+        a,b=1,1
+        noisewtgps = np.diag([a]*3+[b]*5)
+        self.kalmanFilter = KalmanFilter(initial_state, initial_covariance, noisenogps,noisewtgps, self)
+
         self.counterStraight = 0
         self.angleStopTurning = random.uniform(-math.pi, math.pi)
         self.distStopStraight = random.uniform(10, 50)
@@ -55,44 +66,50 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         self.myVote = random.randint(0, 1000)
         self.voteInProgress = False
         self.voteResult = True
-        self.voteRefreshCountdown = 0
+        self.voteRefreshCountdown = 45
 
     def define_message_for_all(self):
-        if(len(self.graph.latest_edges) > 50): #share edges
-            self.publish(np.array2string(self.graph.latest_edges), "EDGES")
-            self.graph.latest_edges = np.array([]) #reset latest_edges
-
+        #if(len(self.graph.latest_edges) > 10): #share edges
+        #    print(f"I SHARED MY EDGES {self.myVote}")
+        #    self.publish(np.array2string(self.graph.latest_edges), "EDGES")
+        #    self.graph.latest_edges = np.array([]) #reset latest_edges
+        pass
             #UNCOMMENT LINE BELOW TO USE INTERNAL COMM INSTEAD OF MQTT!!
             #return np.array2string(self.graph.latest_edges) 
 
     def vote(self):
         self.voteResult = True
         self.voteInProgress = True
-        self.voteRefreshCountdown = 7
+        self.voteRefreshCountdown = 100
         self.publish(self.myVote, "VOTE")
+        print(f"I VOTED!! {self.myVote}")
 
     def on_message(self, client, userdata, msg):
         msg_content = msg.payload.decode()
         if(msg.topic == "EDGES"):
+            print(f"I RECEIVED EDGES {self.myVote}")
             edges = np.fromstring(msg, dtype=object, sep=',') # transform string to numpy array
             self.graph.add_edges(edges) # add edges to the graph
         else: #vote for person
             if(int(msg_content) < self.myVote): #I lose grasp vote :(
+                print(f"I JUST LOST A VOTE!!!{self.myVote}")
                 self.voteResult = False
+            else:
+                print(f"I AM STILL WINNING!! {self.myVote}")
     
     def control(self):
 
-        command_straight = {"forward": 1.0,
+        command_right = {"forward": 0.7,
                             "lateral": 0.0,
-                            "rotation": 0.0,
+                            "rotation": 0.5,
                             "grasper": 0}
 
-        command_turn = {"forward": 0.0,
+        command_left = {"forward": 0.7,
                         "lateral": 0.0,
-                        "rotation": 1.0,
+                        "rotation": -0.5,
                         "grasper": 0}
         
-        found_wounded, found_rescue_center, command_semantic = process_semantic_sensor(self)
+        nearby_drone, found_wounded, found_rescue_center, command_semantic = process_semantic_sensor(self)
 
         collided, collision_angles, far_angles, min_dist, max_dist = process_lidar_sensor(self)
 
@@ -113,30 +130,21 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
         self.voteRefreshCountdown = max(0, self.voteRefreshCountdown - 1)
         if(self.voteRefreshCountdown == 0):
             self.voteInProgress = False
-            self.voteResult = True
 
         if self.state is Activity.SEARCHING_WOUNDED:
             self.builtReturnPath = False
             self.counterStraight += 1
 
-            if collided and not self.isTurning and self.counterStraight > self.distStopStraight:
-                x_target, y_target = self.graph.rrt_steering(x, y, angle, far_angles)
-                self.isTurning = True
-                self.angleStopTurning = math.atan2( y_target-y, x_target-x )
-                self.distStopStraight = distance.euclidean((x,y), (x_target, y_target))
+            x_target, y_target = self.graph.rrt_steering(x, y, angle, far_angles)
 
-            diff_angle = normalize_angle(self.angleStopTurning - angle)
-            if self.isTurning and abs(diff_angle) < 0.2:
-                self.isTurning = False
-                self.counterStraight = 0
+            command = move_to_point(x_target, y_target, angle, x, y)
+        
 
-            if self.isTurning:
-                return command_turn
-            else:
-                return command_straight
 
         elif self.state is Activity.GRASPING_WOUNDED:
             self.builtReturnPath = False
+            if(nearby_drone):
+                self.vote()
             command = command_semantic
             command["grasper"] = 1
 
@@ -148,7 +156,7 @@ class MyDroneEval(DroneAbstract, MyDroneMQTT):
             while distance.euclidean([x,y], self.returnPath[0]) < 1.5 and len(self.returnPath) > 1:
                 self.returnPath.pop(0)
             command = move_to_point(self.returnPath[0][0], self.returnPath[0][1], angle, x, y)
-            command["grasper"] = 0
+            command["grasper"] = self.voteResult and (not self.voteInProgress)
 
         elif self.state is Activity.DROPPING_AT_RESCUE_CENTER:
             self.builtReturnPath = False

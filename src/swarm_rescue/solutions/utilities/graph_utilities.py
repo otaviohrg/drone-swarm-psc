@@ -70,7 +70,7 @@ class MyDroneGraph:
             self.add_edge(ux, uy, vx, vy, weight, False)
     
     def heuristic(self, u, v):
-        return abs(u[0] - v[0]) + abs(u[1] - v[1])
+        return ((u[0] - v[0])**2 + (u[1] - v[1])**2)**0.5
     
     def shortest_path(self, start_coords, end_coords):
         #we specify start and end coordinates to build path
@@ -122,27 +122,34 @@ class MyDroneGraph:
         """
         # Select a random subset of 30 points from the graph
         aux = list(self.node_to_coordinates.values())
-        random_points = random.sample(aux, min(30, len(aux)))
+        random_points = random.sample(aux, min(150, len(aux)))
 
         # Initialize variables to keep track of the direction with the fewest points
         min_points = float('inf')
         best_direction = None
 
+        candidate_points = []
         # Iterate over candidate directions and choose the direction with the fewest points
         for direction in far_angles:
-            # Calculate the new position in the current direction
-            x_candidate = x + 5*math.cos(direction + angle)
-            y_candidate = y + 5*math.sin(direction + angle)
+            for i in range(2, 8):
+                # Calculate the new position in the current direction
+                x_candidate = x + i*math.cos(direction + angle)
+                y_candidate = y + i*math.sin(direction + angle)
 
-            # Count the number of points within a certain radius (e.g., 10 units) around the new position
-            num_points = sum(1 for x_p, y_p in random_points if math.sqrt((x_p - x_candidate)**2 + (y_p - y_candidate)**2) <= 10)
+                # Count the number of points within a certain radius (e.g., 10 units) around the new position
+                num_points = sum(1 for x_p, y_p in random_points if math.sqrt((x_p - x_candidate)**2 + (y_p - y_candidate)**2) <= 30)
 
-            # Update the best direction if the current direction has fewer points
-            if num_points < min_points:
-                min_points = num_points
-                best_direction = direction
+                # Update the best direction if the current direction has fewer points
+                if num_points < min_points:
+                    min_points = num_points
+                    best_direction = direction
 
-        x_chosen = x + 5*math.cos(best_direction + angle)
-        y_chosen = y + 5*math.sin(best_direction + angle)
+                candidate_points.append((x_candidate, y_candidate))
 
-        return x_chosen, y_chosen
+        #x_chosen = x + 5*math.cos(best_direction + angle)
+        #y_chosen = y + 5*math.sin(best_direction + angle)
+
+        u_rand = random.choice(candidate_points)
+
+        #return x_chosen, y_chosen
+        return u_rand[0], u_rand[1]

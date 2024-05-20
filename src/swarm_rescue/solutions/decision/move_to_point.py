@@ -6,11 +6,11 @@ def move_to_point(destx, desty, compass_angle, gps_x, gps_y):
     '''
     At each step of the movement, we try multiple different rotations and pick the one that minimises distance to target
     '''
-    command = {"forward": 0.65,
+    command = {"forward": 1.0,
                 "lateral": 0.0,
                 "rotation": 0.0,
                 "grasper": 0.0}
-    candidates = [-1, -0.5, 0, 0.5, 1]
+    candidates = [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]
 
     dest = (destx, desty)
     criteria = []
